@@ -350,6 +350,62 @@ def recent(events: List[AetherEvent], days: int = 7,
     }
 
 
+# Types « faits » qu'une correction peut perimer (on exclut prompt/token_usage).
+_FACT_TYPES = {EventType.DECISION, EventType.COMPLETION, EventType.NOTE, EventType.TOOL_RESULT}
+
+
+def lessons_learned(events: List[AetherEvent], as_of: Optional[datetime] = None) -> Dict[str, Any]:
+    """Lecons tirees des CORRECTIONS (C3) : ce qui a ete revise/abandonne, et la verite courante.
+    PUR, LECTURE SEULE. Une lecon = une correction + les faits anterieurs de SA session qu'elle
+    perime. `still_standing` = les decisions encore valides (non corrigees). Cite ses preuves.
+    Vide tant qu'aucune correction n'est journalisee (calibre sur l'observe, pas invente)."""
+    asof = _aware(as_of) or datetime.now(timezone.utc)
+    floor = datetime.min.replace(tzinfo=timezone.utc)
+
+    def valid(e: AetherEvent) -> bool:
+        vf = _aware(e.valid_from)
+        if vf and vf > asof:
+            return False
+        vt = _aware(e.valid_to)
+        return not (vt and vt < asof)
+
+    corrections = sorted(
+        [e for e in events if e.type == EventType.CORRECTION and valid(e)],
+        key=lambda e: _aware(e.valid_from) or floor)
+
+    lessons = []
+    for c in corrections:
+        sid = c.data.get("session_id")
+        cvf = _aware(c.valid_from) or floor
+        superseded = [
+            {"id": e.id, "type": e.type.value, "text": _text(e)[:200]}
+            for e in events
+            if sid is not None and e.data.get("session_id") == sid
+            and e.type in _FACT_TYPES and (_aware(e.valid_from) or floor) < cvf
+        ] if sid is not None else []
+        lessons.append({
+            "session": sid,
+            "when": (cvf.isoformat() if c.valid_from else None),
+            "source": c.source,
+            "correction": _text(c)[:300],          # la verite courante / le « pourquoi »
+            "superseded": superseded,              # ce qui a ete revise / abandonne
+        })
+
+    corr_idx = _corrections_index(events)
+    still_standing = [
+        {"id": e.id, "type": e.type.value, "session": e.data.get("session_id"),
+         "text": _text(e)[:200]}
+        for e in events
+        if e.type == EventType.DECISION and valid(e)
+        and not _superseded_by(corr_idx, e.data.get("session_id"), _aware(e.valid_from))
+    ]
+    return {
+        "lessons": lessons,
+        "still_standing": still_standing,
+        "counts": {"lessons": len(lessons), "still_standing": len(still_standing)},
+    }
+
+
 def briefing_today(events: List[AetherEvent], now: Optional[datetime] = None) -> Dict[str, Any]:
     """Briefing d'usage du jour (lecture seule). Reutilise economy/inspect."""
     from .inspect import summarize

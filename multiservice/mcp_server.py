@@ -84,6 +84,12 @@ def build_server(journal_path: str = None):
         return memory.recent(read_events(jp), days=days)
 
     @srv.tool()
+    def lessons() -> dict:
+        """Lecons tirees des corrections (C3) : ce qui a ete revise/abandonne + la verite courante
+        (`still_standing`). Lecture seule. Vide tant qu'aucune correction n'est journalisee."""
+        return memory.lessons_learned(read_events(jp))
+
+    @srv.tool()
     def index_status() -> dict:
         """FraIcheur de l'index sEmantique : combien d'EvEnements indexables sont couverts.
         Si 'fresh' est faux, recall_semantic ne voit pas tout (rEsultats partiels). Lecture seule."""
