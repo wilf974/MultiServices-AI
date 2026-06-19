@@ -27,6 +27,22 @@ decision was **corrected (C3)**, serves the **current truth**, and shows its **p
 
 ---
 
+## What problem does it solve?
+
+**Without memory:**
+
+- agents repeat abandoned decisions
+- context is re-sent every turn
+- past reasoning disappears
+
+**With MultiService IA:**
+
+- stale facts are detected
+- corrections become first-class events
+- every answer can explain where it came from
+
+---
+
 ## Why
 
 Conversations with an LLM are ephemeral by default: context is re-sent every turn, knowledge is

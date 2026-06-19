@@ -29,6 +29,22 @@ décision a été **corrigée (C3)**, sert la **vérité courante**, et affiche 
 
 ---
 
+## Quel problème ça résout ?
+
+**Sans mémoire :**
+
+- les agents répètent des décisions abandonnées
+- le contexte est ré-envoyé à chaque tour
+- le raisonnement passé disparaît
+
+**Avec MultiService IA :**
+
+- les faits périmés sont détectés
+- les corrections deviennent des événements de première classe
+- chaque réponse peut expliquer d'où elle vient
+
+---
+
 ## Pourquoi
 
 Une conversation avec un LLM est éphémère par défaut : le contexte est ré-envoyé à chaque tour, la
