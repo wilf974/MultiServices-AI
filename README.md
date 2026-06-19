@@ -256,9 +256,14 @@ python -m multiservice.economy     # token accounting: prefix re-send, windowing
 python -m multiservice.index       # incremental local embedding (re)index
 python -m multiservice.preheat     # pre-heating: projected cost of the next turn
 python -m multiservice.mcp_server  # read-only MCP memory server
+python -m multiservice.projlog "<decision>" --kind decision --session <topic>   # log a project decision
 ```
 
 In the chat loop: `/correct <note>`, `/note <text>`, `/reset`, `/quit`.
+
+> **Dogfooding.** `projlog` writes the project's own decisions/corrections into the journal, so
+> `recall`/`brief`/`recent` can ground future work in past reasoning — the memory remembers its own
+> development. It's a capture (append-only); the MCP query surface stays read-only.
 
 ---
 
