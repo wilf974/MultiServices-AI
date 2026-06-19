@@ -264,6 +264,12 @@ python -m multiservice.projlog "<decision>" --kind decision --session <topic>   
 
 In the chat loop: `/correct <note>`, `/note <text>`, `/reset`, `/quit`.
 
+> **Shared memory across projects.** Run `pip install -e .` to make the `projlog` command available
+> everywhere on the machine; any project can then feed the same local journal with a namespaced
+> source (`projlog "…" --source project:<name> --session <topic>`), isolable via
+> `recall(source="project:<name>")`. The query surface stays read-only — only capture writes. See
+> [`docs/CAPTURE-CONVENTION.md`](docs/CAPTURE-CONVENTION.md).
+
 > **Dogfooding.** `projlog` writes the project's own decisions/corrections into the journal, so
 > `recall`/`brief`/`recent` can ground future work in past reasoning — the memory remembers its own
 > development. It's a capture (append-only); the MCP query surface stays read-only.

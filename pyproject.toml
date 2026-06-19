@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multiservice-ia"
+description = "A sovereign, local-first, bi-temporal memory substrate for LLMs."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "MultiService IA authors" }]
+keywords = ["llm", "memory", "agent-memory", "mcp", "ollama", "event-sourcing",
+            "bi-temporal", "local-first", "rag", "semantic-search"]
+dynamic = ["version"]
+dependencies = ["pydantic>=2.0"]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0"]            # serveur MCP lecture seule (python -m multiservice.mcp_server)
+gguf = ["llama-cpp-python"]   # backend EmbeddedGGUF (wheel selon CPU/CUDA, cf. requirements.txt)
+dev = ["pytest>=8.0"]
+
+# Capture : disponible PARTOUT apres `pip install -e .` -> tout projet peut alimenter
+# la memoire partagee (ecriture hors MCP, source-namespacee, cf. D5).
+[project.scripts]
+projlog = "multiservice.projlog:main"
+
+[project.urls]
+Homepage = "https://github.com/wilf974/MultiServices-AI"
+Repository = "https://github.com/wilf974/MultiServices-AI"
+
+[tool.setuptools]
+packages = ["multiservice"]
+
+[tool.setuptools.dynamic]
+version = { attr = "multiservice.__version__" }
