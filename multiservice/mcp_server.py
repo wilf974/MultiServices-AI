@@ -84,6 +84,13 @@ def build_server(journal_path: str = None):
         return memory.recent(read_events(jp), days=days)
 
     @srv.tool()
+    def reasoning(session_id: str) -> dict:
+        """Fil de RAISONNEMENT d'une session : hypothese -> observation -> decision -> correction
+        -> validation, ordonne. Indique les etapes presentes/manquantes (ex: decision sans
+        validation). Lecture seule, cite ses preuves + fraicheur C3."""
+        return memory.reasoning_chain(read_events(jp), session_id)
+
+    @srv.tool()
     def lessons() -> dict:
         """Lecons tirees des corrections (C3) : ce qui a ete revise/abandonne + la verite courante
         (`still_standing`). Lecture seule. Vide tant qu'aucune correction n'est journalisee."""
