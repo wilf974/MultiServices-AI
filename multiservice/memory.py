@@ -391,6 +391,13 @@ def lessons_learned(events: List[AetherEvent], as_of: Optional[datetime] = None)
             "superseded": superseded,              # ce qui a ete revise / abandonne
         })
 
+    # Deduplication de la SORTIE : une meme correction (session + texte) ne compte qu'une fois
+    # (la plus recente). Le journal append-only garde, lui, tous les doublons (C3 intacte).
+    by_key: Dict[Any, Dict[str, Any]] = {}
+    for L in lessons:
+        by_key[(L["session"], _norm(L["correction"]))] = L     # le plus recent ecrase
+    lessons = sorted(by_key.values(), key=lambda L: L["when"] or "", reverse=True)
+
     corr_idx = _corrections_index(events)
     still_standing = [
         {"id": e.id, "type": e.type.value, "session": e.data.get("session_id"),
