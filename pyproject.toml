@@ -23,6 +23,7 @@ dev = ["pytest>=8.0"]
 # la memoire partagee (ecriture hors MCP, source-namespacee, cf. D5).
 [project.scripts]
 projlog = "multiservice.projlog:main"
+multiservice-mcp = "multiservice.mcp_server:main"   # commande sans flag -> evite le bug "-m" de claude mcp add
 
 [project.urls]
 Homepage = "https://github.com/wilf974/MultiServices-AI"
