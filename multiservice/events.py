@@ -34,6 +34,10 @@ class EventType(str, Enum):
     TOOL_RESULT = "tool_result"
     CORRECTION = "correction"
     TOKEN_USAGE = "token_usage"
+    # --- types de RAISONNEMENT (graphe causal, Memory Intelligence) ---
+    HYPOTHESIS = "hypothesis"
+    OBSERVATION = "observation"
+    VALIDATION = "validation"
 
 
 # Le perimetre EXACT capture par le Sprint 13 (capture seule).

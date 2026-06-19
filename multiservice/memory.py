@@ -353,6 +353,45 @@ def recent(events: List[AetherEvent], days: int = 7,
 # Types « faits » qu'une correction peut perimer (on exclut prompt/token_usage).
 _FACT_TYPES = {EventType.DECISION, EventType.COMPLETION, EventType.NOTE, EventType.TOOL_RESULT}
 
+# Etapes d'un fil de RAISONNEMENT, dans l'ordre canonique (graphe causal).
+_REASONING_ORDER = ["hypothesis", "observation", "decision", "correction", "validation"]
+_REASONING_SET = set(_REASONING_ORDER)
+
+
+def reasoning_chain(events: List[AetherEvent], session_id: str,
+                    as_of: Optional[datetime] = None) -> Dict[str, Any]:
+    """Le fil de RAISONNEMENT d'une session : hypothese -> observation -> decision -> correction
+    -> validation, ordonne chronologiquement (puis par etape). PUR, LECTURE SEULE.
+
+    Signale les etapes `present` / `missing` (ex: une decision SANS validation) — fait observe,
+    pas un jugement. Chaque pas porte sa provenance et sa fraicheur C3 (`superseded`)."""
+    asof = _aware(as_of) or datetime.now(timezone.utc)
+    corr_idx = _corrections_index(events)
+    rank = {s: i for i, s in enumerate(_REASONING_ORDER)}
+    steps = []
+    for e in events:
+        if e.data.get("session_id") != session_id:
+            continue
+        if e.type.value not in _REASONING_SET:
+            continue
+        vf = _aware(e.valid_from)
+        if vf and vf > asof:
+            continue
+        vt = _aware(e.valid_to)
+        if vt and vt < asof:
+            continue
+        cor = _superseded_by(corr_idx, session_id, vf)
+        steps.append({
+            "id": e.id, "stage": e.type.value, "source": e.source,
+            "valid_from": vf.isoformat() if vf else None, "text": _text(e)[:200],
+            "superseded": bool(cor), "corrected_by": cor,
+        })
+    steps.sort(key=lambda s: (s["valid_from"] or "", rank.get(s["stage"], 9)))
+    present = [s for s in _REASONING_ORDER if any(x["stage"] == s for x in steps)]
+    missing = [s for s in _REASONING_ORDER if s not in present]
+    return {"session": session_id, "steps": steps,
+            "stages_present": present, "stages_missing": missing, "count": len(steps)}
+
 
 def lessons_learned(events: List[AetherEvent], as_of: Optional[datetime] = None) -> Dict[str, Any]:
     """Lecons tirees des CORRECTIONS (C3) : ce qui a ete revise/abandonne, et la verite courante.

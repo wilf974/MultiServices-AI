@@ -29,7 +29,10 @@ from .journal import append_events
 
 KINDS = {"decision": EventType.DECISION,
          "correction": EventType.CORRECTION,
-         "note": EventType.NOTE}
+         "note": EventType.NOTE,
+         "hypothesis": EventType.HYPOTHESIS,
+         "observation": EventType.OBSERVATION,
+         "validation": EventType.VALIDATION}
 
 
 def make_event(kind: str, text: str, source: str = "project:wilfred",
