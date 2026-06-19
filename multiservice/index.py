@@ -15,7 +15,10 @@ from .journal import read_events
 from .semantic import EmbeddingStore, OllamaEmbedder, build_index
 
 _TEXT_TYPES = {EventType.PROMPT, EventType.COMPLETION, EventType.CORRECTION,
-               EventType.TOOL_RESULT}
+               EventType.TOOL_RESULT,
+               # raisonnement / projet : pour les retrouver PAR LE SENS (recall_semantic)
+               EventType.DECISION, EventType.NOTE,
+               EventType.HYPOTHESIS, EventType.OBSERVATION, EventType.VALIDATION}
 
 
 def main() -> None:

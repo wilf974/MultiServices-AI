@@ -247,15 +247,18 @@ def main() -> None:
     p.add_argument("--n-gpu-layers", type=int, default=config.N_GPU_LAYERS, dest="n_gpu_layers")
     p.add_argument("--journal", default=config.JOURNAL_PATH)
     p.add_argument("--system", default=config.SYSTEM_PROMPT)
-    p.add_argument("--cache", action="store_true", help="cache de resultat (S16, opt-in)")
+    p.add_argument("--cache", action="store_true", default=True, dest="cache",
+                   help="cache de resultat exact (ACTIF par defaut ; --no-cache pour couper)")
+    p.add_argument("--no-cache", action="store_false", dest="cache")
     p.add_argument("--cache-path", default=config.CACHE_PATH, dest="cache_path")
     p.add_argument("--compact", action="store_true", default=True, dest="compact",
                    help="cloture C3 du contexte (S16, ACTIVE par defaut)")
     p.add_argument("--no-compact", action="store_false", dest="compact",
                    help="desactive la cloture C3")
     p.add_argument("--keep-turns", type=int, default=config.KEEP_TURNS, dest="keep_turns")
-    p.add_argument("--semcache", action="store_true",
-                   help="cache semantique S18 (opt-in) : sert une quasi-paraphrase sans rappeler le modele")
+    p.add_argument("--semcache", action="store_true", default=True, dest="semcache",
+                   help="cache semantique S18 (ACTIF par defaut ; --no-semcache pour couper)")
+    p.add_argument("--no-semcache", action="store_false", dest="semcache")
     p.add_argument("--semcache-path", default=config.SEMCACHE_PATH, dest="semcache_path")
     p.add_argument("--semcache-threshold", type=float, default=0.95, dest="semcache_threshold",
                    help="seuil decisionnel du cache semantique (defaut 0.95, calibre sur le reel)")
