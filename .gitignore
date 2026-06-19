@@ -1,0 +1,59 @@
+# =====================================================================
+#  DONNÉES PRIVÉES — NE JAMAIS COMMITTER (contenu de la mémoire/journal)
+# =====================================================================
+*.jsonl
+journal*.jsonl
+embeddings*.jsonl
+cache*.jsonl
+semcache*.jsonl
+.aethercore/
+logs/
+skills/                 # skills promues locales (peuvent refléter du vécu)
+
+# Copie locale du projet compagnon (ne pas publier)
+reference/
+
+# Coffre Obsidian personnel (notes de terrain, à curer avant toute publication)
+MultiService-IA-Vault/
+
+# Docs internes/privés (observations terrain, repère de reprise) — NE PAS publier tel quel
+CLAUDE.md
+docs/DECISIONS.md
+
+# READMEs vestiges de scaffolding (chemins perso + nom de modèle) — supprimés, ne pas re-committer
+README-MCP.md
+README-SPRINT13.md
+
+# Modèles locaux (lourds)
+*.gguf
+
+# Artefact généré par la démo (fictif, mais regénérable)
+examples/memory_demo/demo_events.json
+
+# =====================================================================
+#  Python
+# =====================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# =====================================================================
+#  IDE / OS
+# =====================================================================
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
