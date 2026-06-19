@@ -157,6 +157,7 @@ an MCP-capable client). All results carry provenance and a freshness flag.
 | `forecast(session_id)` | **Pre-heating**: projects the next turn's cost (snowball vs windowed), read-only estimate. |
 | `brief(query, k)` | A composed topic brief in one call: memories + bearing decisions + revised items + sessions. |
 | `recent(days)` | **"What's new"**: recent decisions, corrections and latest events — the entry point when resuming work. |
+| `lessons()` | **Lessons learned** from C3 corrections: what was revised/abandoned + the truths that still stand. Empty until a correction is logged. |
 | `index_status()` | Freshness of the semantic index (`eligible` / `indexed` / `fresh`). Tells you when semantic recall is partial. |
 | resource `briefing/today` | Daily usage briefing (tokens, compaction savings, by model). |
 

@@ -161,6 +161,7 @@ vers un client compatible). Tous les résultats portent leur provenance et un dr
 | `forecast(session_id)` | **Pré-chauffage** : projette le coût du prochain tour (snowball vs fenêtré), estimation en lecture seule. |
 | `brief(query, k)` | Un brief de sujet composé en un appel : souvenirs + décisions liées + éléments révisés + sessions. |
 | `recent(days)` | **« Quoi de neuf »** : décisions, corrections et derniers événements récents — le point d'entrée d'une reprise. |
+| `lessons()` | **Leçons** tirées des corrections C3 : ce qui a été révisé/abandonné + les vérités qui tiennent encore. Vide tant qu'aucune correction n'est journalisée. |
 | `index_status()` | Fraîcheur de l'index sémantique (`eligible` / `indexed` / `fresh`). Indique quand le recall sémantique est partiel. |
 | ressource `briefing/today` | Briefing d'usage du jour (tokens, économie de compaction, par modèle). |
 
