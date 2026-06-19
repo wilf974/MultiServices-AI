@@ -209,8 +209,8 @@ pip install -r requirements.txt
 ollama pull <your-chat-model>      # any local model; set via OLLAMA_MODEL
 ollama pull bge-m3                  # local embeddings for hybrid recall
 
-# 3. chat (capture is automatic; opt-in economy/memory levers)
-python -m multiservice.chat --ollama --semcache --recall
+# 3. chat (capture is automatic; exact + semantic cache and windowing are ON by default)
+python -m multiservice.chat --ollama --recall     # add --recall for live memory injection
 
 # 4. (re)build the semantic index after chatting
 python -m multiservice.index

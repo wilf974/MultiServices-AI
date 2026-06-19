@@ -48,3 +48,14 @@ def test_sans_texte_non_indexable():
 
 def test_journal_vide_est_frais():
     assert index_coverage([], {})["fresh"] is True
+
+
+def test_decision_et_raisonnement_indexables():
+    """Decisions/hypotheses/... sont desormais indexables -> retrouvables PAR LE SENS."""
+    for typ in (EventType.DECISION, EventType.NOTE, EventType.HYPOTHESIS,
+                EventType.OBSERVATION, EventType.VALIDATION):
+        e = AetherEvent(type=typ, title="x", description="Licence Apache-2.0",
+                        source="project:local", observed_at=T0,
+                        data={"text": "Licence Apache-2.0", "session_id": "s", "turn_id": "t"})
+        cov = index_coverage([e], {})
+        assert cov["eligible"] == 1, typ

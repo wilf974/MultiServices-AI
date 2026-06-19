@@ -509,7 +509,9 @@ def briefing_today(events: List[AetherEvent], now: Optional[datetime] = None) ->
 
 # Types reellement indexes (garder en phase avec index._TEXT_TYPES).
 _INDEXABLE_TYPES = {EventType.PROMPT, EventType.COMPLETION,
-                    EventType.CORRECTION, EventType.TOOL_RESULT}
+                    EventType.CORRECTION, EventType.TOOL_RESULT,
+                    EventType.DECISION, EventType.NOTE,
+                    EventType.HYPOTHESIS, EventType.OBSERVATION, EventType.VALIDATION}
 
 
 def index_coverage(events: List[AetherEvent], vecs: Dict[str, Any],

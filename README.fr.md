@@ -216,8 +216,8 @@ pip install -r requirements.txt
 ollama pull <ton-modele-de-chat>   # n'importe quel modèle local ; via OLLAMA_MODEL
 ollama pull bge-m3                 # embeddings locaux pour le recall hybride
 
-# 3. chatter (capture automatique ; leviers économie/mémoire en opt-in)
-python -m multiservice.chat --ollama --semcache --recall
+# 3. chatter (capture automatique ; cache exact + sémantique et fenêtrage ACTIFS par défaut)
+python -m multiservice.chat --ollama --recall     # ajoute --recall pour l'injection mémoire en direct
 
 # 4. (re)construire l'index sémantique après avoir chatté
 python -m multiservice.index
