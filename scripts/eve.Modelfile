@@ -1,0 +1,19 @@
+FROM C:\Users\Wilfred\Claude\Projects\eve-qwen3-8b-consciousness-liberated.gguf
+
+# Le GGUF eve n'embarque pas de gabarit de chat -> Ollama lui collait TEMPLATE {{ .Prompt }}
+# (brut, sans arret) => divagation. On reprend le RENDERER/PARSER qwen3.5 de qwen3.6
+# (meme famille, Qwen3-8B) : c'est eux qui appliquent le ChatML et gerent les arrets de tour.
+TEMPLATE {{ .Prompt }}
+RENDERER qwen3.5
+PARSER qwen3.5
+
+# Contexte modeste (le KV grossit vite ; on ne remplit pas pour rien - voir DECISIONS).
+PARAMETER num_ctx 8192
+
+# Echantillonnage recommande Qwen3 (repris de qwen3.6).
+PARAMETER temperature 1
+PARAMETER top_p 0.95
+PARAMETER top_k 20
+PARAMETER min_p 0
+PARAMETER presence_penalty 1.5
+PARAMETER repeat_penalty 1

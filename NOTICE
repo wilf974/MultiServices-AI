@@ -1,0 +1,9 @@
+MultiService IA
+Copyright 2026 MultiService IA authors
+
+This product is licensed under the Apache License, Version 2.0.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+
+The constitutional design principles (mandatory provenance, bi-temporal
+closure-never-deletion, human-in-the-loop) are inherited from a companion
+bi-temporal event-sourcing system and applied here to LLM exchanges.
