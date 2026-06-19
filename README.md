@@ -160,6 +160,7 @@ an MCP-capable client). All results carry provenance and a freshness flag.
 | `reasoning(session_id)` | **Reasoning chain** of a session: hypothesis → observation → decision → correction → validation, ordered, with **present/missing stages** (e.g. a decision with no validation). |
 | `lessons()` | **Lessons learned** from C3 corrections: what was revised/abandoned + the truths that still stand. Empty until a correction is logged. |
 | `index_status()` | Freshness of the semantic index (`eligible` / `indexed` / `fresh`). Tells you when semantic recall is partial. |
+| `usage()` | **Reuse instrumentation**: how many turns were served from memory (cache, no model call) and input tokens saved. Measures, doesn't predict. |
 | resource `briefing/today` | Daily usage briefing (tokens, compaction savings, by model). |
 
 Two human-gated write paths live in the chat loop (not in the read-only surface):

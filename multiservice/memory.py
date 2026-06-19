@@ -452,6 +452,42 @@ def lessons_learned(events: List[AetherEvent], as_of: Optional[datetime] = None)
     }
 
 
+def reuse_stats(events: List[AetherEvent], as_of: Optional[datetime] = None) -> Dict[str, Any]:
+    """Instrumentation LECTURE SEULE : combien de tours ont ete SERVIS depuis la memoire (cache,
+    sans rappeler le modele) et combien de tokens d'entree epargnes. Mesure la reutilisation/valeur
+    de la memoire, a partir des marqueurs deja journalises a la capture (`served_from`,
+    `cached_tokens`, `saved_input_tokens`). PUR. Il MESURE l'observe — ne predit, ne juge rien.
+    (Etape 3 Memory Intelligence : on accumule le signal ; obsolescence/confiance viendront APRES.)"""
+    asof = _aware(as_of) or datetime.now(timezone.utc)
+    turns = served = saved_cache = saved_window = 0
+    by_source: Dict[str, int] = {}
+    for e in events:
+        if e.type != EventType.TOKEN_USAGE:
+            continue
+        vf = _aware(e.valid_from)
+        if vf and vf > asof:
+            continue
+        vt = _aware(e.valid_to)
+        if vt and vt < asof:
+            continue
+        turns += 1
+        d = e.data
+        sf = d.get("served_from")
+        if sf:
+            served += 1
+            by_source[sf] = by_source.get(sf, 0) + 1
+            saved_cache += int(d.get("cached_tokens", 0) or 0)
+        saved_window += int(d.get("saved_input_tokens", 0) or 0)
+    return {
+        "turns": turns,
+        "served_from_memory": served,
+        "served_pct": round(100 * served / turns, 1) if turns else 0.0,
+        "by_source": by_source,
+        "input_tokens_saved_by_cache": saved_cache,
+        "input_tokens_saved_by_windowing": saved_window,
+    }
+
+
 def briefing_today(events: List[AetherEvent], now: Optional[datetime] = None) -> Dict[str, Any]:
     """Briefing d'usage du jour (lecture seule). Reutilise economy/inspect."""
     from .inspect import summarize

@@ -84,6 +84,12 @@ def build_server(journal_path: str = None):
         return memory.recent(read_events(jp), days=days)
 
     @srv.tool()
+    def usage() -> dict:
+        """Instrumentation (lecture seule) : reutilisation de la memoire — tours SERVIS depuis le
+        cache (sans rappeler le modele), par source, et tokens d'entree epargnes. Mesure, pas predit."""
+        return memory.reuse_stats(read_events(jp))
+
+    @srv.tool()
     def reasoning(session_id: str) -> dict:
         """Fil de RAISONNEMENT d'une session : hypothese -> observation -> decision -> correction
         -> validation, ordonne. Indique les etapes presentes/manquantes (ex: decision sans
