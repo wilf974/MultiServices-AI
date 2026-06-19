@@ -54,6 +54,17 @@ def test_correction_scopee_a_sa_session():
     assert any(d["session"] == "sujet-A" for d in out["still_standing"])
 
 
+def test_dedup_corrections_identiques():
+    """Doublon (meme session + meme texte de correction) -> une seule lecon en sortie."""
+    evs = [
+        _ev(EventType.DECISION, "Licence MIT", T0, "licence"),
+        _ev(EventType.CORRECTION, "En fait Apache-2.0", T0 + timedelta(hours=1), "licence"),
+        _ev(EventType.CORRECTION, "En fait Apache-2.0", T0 + timedelta(hours=2), "licence"),  # doublon
+    ]
+    out = lessons_learned(evs)
+    assert out["counts"]["lessons"] == 1
+
+
 def test_lessons_est_pur():
     evs = [
         _ev(EventType.DECISION, "Licence MIT", T0, "licence"),
