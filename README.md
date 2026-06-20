@@ -174,15 +174,22 @@ Two human-gated write paths live in the chat loop (not in the read-only surface)
 
 ## Token economy
 
-Measuring real usage shows that the vast majority of input tokens are prefix re-sends (the
-"snowball" of growing context). MultiService IA addresses this with read-only-friendly levers:
+Real measurements on live conversations showed that up to **98.5% of input tokens** were context
+re-sends (the "snowball" of growing context) rather than new information. MultiService IA attacks
+this waste with three read-only-friendly levers:
 
 - **Exact result cache** — identical requests are served without calling the model (C3-guarded:
   a later correction invalidates the entry).
 - **Semantic cache** — near-paraphrases of an already-answered prompt are served without the model.
-  This is **decisional**, so it uses a deliberately high similarity threshold ("when in doubt, don't
-  serve"), calibrated on real data, distinct from the *suggestive* low bar of recall.
+  Decisional, so a deliberately high similarity threshold ("when in doubt, don't serve").
 - **Context windowing** — keeps the last *N* turns in clear, bounding the snowball.
+
+Crucially, the savings aren't *claimed* — they're **measured**, read-only, by the `usage()` tool:
+how many turns were served from memory, and how many input tokens were actually saved.
+
+> **Live measurement** (one real journal): 199 turns · 595 input tokens saved by windowing ·
+> 16 saved by the semantic cache (only recently enabled). *Your numbers depend on usage patterns —
+> the point is that they are measured, not asserted.*
 
 ---
 

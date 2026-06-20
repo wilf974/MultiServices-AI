@@ -180,16 +180,23 @@ lecture seule) :
 
 ## Économie de tokens
 
-La mesure de l'usage réel montre que l'immense majorité des tokens d'entrée sont des ré-envois de
-préfixe (le « snowball » du contexte qui grossit). MultiService IA y répond avec des leviers
-compatibles lecture seule :
+Des mesures réelles sur des conversations en production ont montré que jusqu'à **98,5 % des tokens
+d'entrée** étaient du ré-envoi de contexte (le « snowball » du contexte qui grossit), et non de
+l'information nouvelle. MultiService IA s'attaque à ce gaspillage avec trois leviers compatibles
+lecture seule :
 
 - **Cache de résultat exact** — une requête identique est servie sans appeler le modèle (gardé par
   C3 : une correction postérieure invalide l'entrée).
-- **Cache sémantique** — une quasi-paraphrase d'un prompt déjà répondu est servie sans le modèle.
-  C'est **décisionnel**, donc seuil de similarité volontairement haut (« dans le doute, on ne sert
-  pas »), calibré sur le réel, distinct du seuil bas *suggestif* du recall.
+- **Cache sémantique** — une quasi-paraphrase déjà répondue est servie sans le modèle. Décisionnel,
+  donc seuil de similarité volontairement haut (« dans le doute, on ne sert pas »).
 - **Fenêtrage de contexte** — garde les *N* derniers tours en clair, bornant le snowball.
+
+Le point clé : l'économie n'est pas *promise* — elle est **mesurée**, en lecture seule, par l'outil
+`usage()` : combien de tours servis depuis la mémoire, et combien de tokens d'entrée réellement épargnés.
+
+> **Mesure réelle** (un journal réel) : 199 tours · 595 tokens d'entrée épargnés par le fenêtrage ·
+> 16 par le cache sémantique (activé récemment). *Tes chiffres dépendront de l'usage — l'important,
+> c'est qu'ils soient mesurés, pas affirmés.*
 
 ---
 
