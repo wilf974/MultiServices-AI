@@ -49,6 +49,10 @@ MultiService IA fixes this with a single, simple idea borrowed from event sourci
 turn to a local, append-only journal, and never delete anything.** From that journal, everything
 else (search, explanation, economy, forecasting) is a pure read.
 
+> Traditional memory answers **"what do I know?"** MultiService IA can also answer **"what is still
+> true?"**, **"what was corrected?"**, **"why?"** and **"has this decision been validated?"** —
+> through `reasoning()`, `lessons()` and `replay_event()`.
+
 ---
 
 ## In 30 seconds
@@ -153,6 +157,25 @@ the current truth.
 Thirty days later, `recall("license")` returns the **current** truth (Apache-2.0) and flags **MIT as
 `STALE (C3)`**, while `lessons()` still explains the **why**. Every frame in that clip is a real
 event from the journal — not a fictional demo. *(Full 34s video: [`docs/license-demo.mp4`](docs/license-demo.mp4).)*
+
+---
+
+## From Memory to Knowledge
+
+MultiService IA is not just a chat history. Over weeks and months, the journal accumulates
+**decisions, corrections, hypotheses, observations and validations** — all typed, sourced and dated.
+That lets a **fresh agent session, with no prior context, reconstruct the state of a project from
+memory alone.**
+
+<p align="center">
+  <img src="docs/from-memory-to-knowledge.png" alt="A fresh agent session with no prior context reconstructs a project's state from memory: current theory, key findings, corrections (STALE C3), rejected hypotheses, mistakes classified into bugs / methodological / negative results, and where to resume." width="760">
+</p>
+
+The agent is no longer recalling isolated facts — it is reconstructing the **intellectual history**
+of a project: what was believed, what was wrong, what was corrected, what was validated, and *why*.
+A search engine returns documents; this returns a **briefing**. That is why events are **typed,
+sourced, dated and never deleted**: knowledge emerges from the journal, and the journal stays the
+single source of truth.
 
 ---
 
