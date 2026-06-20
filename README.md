@@ -4,6 +4,17 @@
 >
 > *A sovereign memory substrate for LLMs — a force, not a dependency.*
 
+<p align="center">
+  <img src="docs/dunkbot-payoff.gif" alt="MultiService IA demo: a stale decision corrected by memory" width="720">
+</p>
+
+**Same question. Same history. Two different answers.**  
+The difference? One knows a decision has been corrected.
+
+Without memory, the agent re-recommends a **dropped** motor. With MultiService IA, it sees the
+decision was **corrected (C3)**, serves the **current truth**, and shows its **provenance** and
+**freshness** — memory isn't enough; the edge is **memory + provenance + freshness**.
+
 MultiService IA observes every turn of an LLM conversation (prompt / completion / tool calls /
 token usage), remembers it as a dated, sourced, bi-temporal event, and then **restores** it
 (recall), **explains** it (why / replay), **economizes** it (caching / context windowing) and
@@ -11,19 +22,6 @@ token usage), remembers it as a dated, sourced, bi-temporal event, and then **re
 
 It turns a stateless chat into a memory you own: queryable, auditable, and honest about its own
 freshness — without ever shipping your data anywhere.
-
----
-
-## In one image
-
-![Memory Arcade — without memory vs with MultiService IA](docs/memory-arcade.png)
-
-> **Same question. Same history. Two different answers.**
-> *The difference? One knows a decision has been corrected.*
-
-Without memory, the agent re-recommends a **dropped** motor. With MultiService IA, it sees the
-decision was **corrected (C3)**, serves the **current truth**, and shows its **provenance** and
-**freshness** — the edge isn't just memory, it's **memory + provenance + freshness**.
 
 ---
 
