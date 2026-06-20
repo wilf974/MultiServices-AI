@@ -140,6 +140,22 @@ and the append-only timeline. Details: [`examples/memory_demo/`](examples/memory
 
 ---
 
+## Dogfooding: the memory remembers its own development
+
+MultiService IA is used to track MultiService IA itself. When the project license changed from
+**MIT** to **Apache-2.0**, the old decision was **closed, never deleted**, and `lessons()` surfaced
+the current truth.
+
+<p align="center">
+  <img src="docs/license-payoff.gif" alt="MultiService IA recalling its own license decision: MIT, corrected to Apache-2.0" width="720">
+</p>
+
+Thirty days later, `recall("license")` returns the **current** truth (Apache-2.0) and flags **MIT as
+`STALE (C3)`**, while `lessons()` still explains the **why**. Every frame in that clip is a real
+event from the journal — not a fictional demo. *(Full 34s video: [`docs/license-demo.mp4`](docs/license-demo.mp4).)*
+
+---
+
 ## The memory surface
 
 The substrate exposes a **read-only** surface (e.g. over [MCP](https://modelcontextprotocol.io) to

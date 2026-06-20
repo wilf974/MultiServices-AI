@@ -144,6 +144,22 @@ la timeline append-only. Détails : [`examples/memory_demo/`](examples/memory_de
 
 ---
 
+## Dogfooding : la mémoire se souvient de sa propre évolution
+
+MultiService IA est utilisé pour suivre MultiService IA lui-même. Quand la licence du projet est
+passée de **MIT** à **Apache-2.0**, l'ancienne décision a été **clôturée, jamais supprimée**, et
+`lessons()` a fait remonter la vérité courante.
+
+<p align="center">
+  <img src="docs/license-payoff.gif" alt="MultiService IA se rappelle sa propre décision de licence : MIT, corrigée en Apache-2.0" width="720">
+</p>
+
+Trente jours plus tard, `recall("license")` renvoie la **vérité courante** (Apache-2.0) et marque
+**MIT en `STALE (C3)`**, tandis que `lessons()` conserve le **pourquoi**. Chaque image de ce clip est
+un événement réel du journal — pas une démo fictive. *(Vidéo complète 34 s : [`docs/license-demo.mp4`](docs/license-demo.mp4).)*
+
+---
+
 ## La surface de mémoire
 
 Le substrat expose une surface en **lecture seule** (par ex. via [MCP](https://modelcontextprotocol.io)
