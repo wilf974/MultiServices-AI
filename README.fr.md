@@ -6,6 +6,17 @@
 
 *([English version](README.md))*
 
+<p align="center">
+  <img src="docs/dunkbot-payoff.gif" alt="Démo MultiService IA : une décision périmée corrigée par la mémoire" width="720">
+</p>
+
+**Même question. Même historique. Deux réponses différentes.**  
+La différence ? L'une sait qu'une décision a été corrigée.
+
+Sans mémoire, l'agent re-recommande un moteur **abandonné**. Avec MultiService IA, il voit que la
+décision a été **corrigée (C3)**, sert la **vérité courante**, et affiche sa **provenance** et sa
+**fraîcheur** — la mémoire ne suffit pas ; l'avantage, c'est **mémoire + provenance + fraîcheur**.
+
 MultiService IA observe chaque tour d'une conversation LLM (prompt / complétion / appels d'outils /
 tokens), le mémorise comme un événement daté, sourcé et bi-temporel, puis le **restitue** (recall),
 l'**explique** (why / replay), l'**économise** (cache / fenêtrage de contexte) et l'**anticipe**
@@ -13,19 +24,6 @@ l'**explique** (why / replay), l'**économise** (cache / fenêtrage de contexte)
 
 Il transforme un chat sans mémoire en une mémoire qui t'appartient : interrogeable, auditable,
 honnête sur sa propre fraîcheur — sans jamais expédier tes données où que ce soit.
-
----
-
-## En une image
-
-![Memory Arcade — sans mémoire vs avec MultiService IA](docs/memory-arcade.png)
-
-> **Même question. Même historique. Deux réponses différentes.**
-> *La différence ? L'une sait qu'une décision a été corrigée.*
-
-Sans mémoire, l'agent re-recommande un moteur **abandonné**. Avec MultiService IA, il voit que la
-décision a été **corrigée (C3)**, sert la **vérité courante**, et affiche sa **provenance** et sa
-**fraîcheur** — l'avantage n'est pas que la mémoire, c'est **mémoire + provenance + fraîcheur**.
 
 ---
 
