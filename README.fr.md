@@ -52,6 +52,10 @@ l'event sourcing : **ajouter chaque tour à un journal local append-only, et ne 
 supprimer.** À partir de ce journal, tout le reste (recherche, explication, économie, prévision)
 n'est qu'une lecture pure.
 
+> Une mémoire classique répond **« qu'est-ce que je sais ? »**. MultiService IA peut aussi répondre
+> **« qu'est-ce qui est encore vrai ? »**, **« qu'est-ce qui a été corrigé ? »**, **« pourquoi ? »**
+> et **« cette décision a-t-elle été validée ? »** — via `reasoning()`, `lessons()` et `replay_event()`.
+
 ---
 
 ## En 30 secondes
@@ -157,6 +161,25 @@ passée de **MIT** à **Apache-2.0**, l'ancienne décision a été **clôturée,
 Trente jours plus tard, `recall("license")` renvoie la **vérité courante** (Apache-2.0) et marque
 **MIT en `STALE (C3)`**, tandis que `lessons()` conserve le **pourquoi**. Chaque image de ce clip est
 un événement réel du journal — pas une démo fictive. *(Vidéo complète 34 s : [`docs/license-demo.mp4`](docs/license-demo.mp4).)*
+
+---
+
+## De la mémoire à la connaissance
+
+MultiService IA n'est pas qu'un historique de chat. Au fil des semaines et des mois, le journal
+accumule **décisions, corrections, hypothèses, observations et validations** — toutes typées,
+sourcées et datées. Cela permet à une **session d'agent neuve, sans aucun contexte préalable, de
+reconstruire l'état d'un projet à partir de la seule mémoire.**
+
+<p align="center">
+  <img src="docs/from-memory-to-knowledge.png" alt="Une session d'agent neuve, sans contexte préalable, reconstruit l'état d'un projet depuis la mémoire : théorie courante, résultats clés, corrections (STALE C3), hypothèses réfutées, erreurs classées (bugs / méthodologie / résultats négatifs), et où reprendre." width="760">
+</p>
+
+L'agent ne rappelle plus des faits isolés — il reconstruit l'**histoire intellectuelle** d'un
+projet : ce qu'on croyait, ce qui était faux, ce qui a été corrigé, ce qui a été validé, et
+*pourquoi*. Un moteur de recherche renvoie des documents ; ceci renvoie un **briefing**. C'est pour
+cela que les événements sont **typés, sourcés, datés et jamais supprimés** : la connaissance émerge
+du journal, et le journal reste l'unique source de vérité.
 
 ---
 
