@@ -39,10 +39,24 @@ def test_build_http_server_reads_port_from_env(monkeypatch, tmp_path):
     assert srv.settings.host == "0.0.0.0"
 
 
-def test_http_server_allows_proxied_host(tmp_path):
-    # Derriere le reverse proxy authentifiant, le Host public ne doit pas etre rejete (421).
+def test_http_server_allows_configured_hosts_with_protection_on(monkeypatch, tmp_path):
+    # Protection anti-DNS-rebinding GARDEE active ; le(s) Host public(s) sont autorises explicitement.
     jp = tmp_path / "j.jsonl"
     jp.write_text("", encoding="utf-8")
+    monkeypatch.setenv("MULTISERVICE_HTTP_ALLOWED_HOSTS", "mem.example.com, 127.0.0.1:8302")
     srv = build_http_server(journal_path=str(jp))
-    assert srv.settings.transport_security is not None
-    assert srv.settings.transport_security.enable_dns_rebinding_protection is False
+    ts = srv.settings.transport_security
+    assert ts.enable_dns_rebinding_protection is True
+    assert "mem.example.com" in ts.allowed_hosts
+    assert "127.0.0.1:8302" in ts.allowed_hosts
+    assert "https://mem.example.com" in ts.allowed_origins
+
+
+def test_http_server_is_fail_closed_by_default(monkeypatch, tmp_path):
+    # Sans la variable : on ne desactive JAMAIS la protection (pas de bind 0.0.0.0 sans garde).
+    jp = tmp_path / "j.jsonl"
+    jp.write_text("", encoding="utf-8")
+    monkeypatch.delenv("MULTISERVICE_HTTP_ALLOWED_HOSTS", raising=False)
+    srv = build_http_server(journal_path=str(jp))
+    ts = srv.settings.transport_security
+    assert ts is None or ts.enable_dns_rebinding_protection is not False

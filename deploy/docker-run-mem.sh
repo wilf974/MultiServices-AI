@@ -13,5 +13,6 @@ docker run -d --name mem-mcp --restart unless-stopped \
   -e MULTISERVICE_SEMCACHE=/data/semcache-llm.jsonl \
   -e MULTISERVICE_SKILLS=/data/skills \
   -e MULTISERVICE_HTTP_HOST=0.0.0.0 -e MULTISERVICE_HTTP_PORT=8302 \
+  -e MULTISERVICE_HTTP_ALLOWED_HOSTS=mem.example.com,127.0.0.1:8302,localhost:8302 \
   mem-mcp
 echo "mem-mcp lance sur 127.0.0.1:8302 (journal en lecture seule)"
