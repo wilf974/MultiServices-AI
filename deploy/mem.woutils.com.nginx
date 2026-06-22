@@ -1,20 +1,30 @@
+# vhost serveur de memoire central (mem.woutils.com)
+#
+# IMPORTANT - architecture de ce VPS : un bloc `stream` ecoute le 443 PUBLIC et route par SNI
+# vers les vhosts http en `listen 8443 ssl proxy_protocol` (set_real_ip_from 127.0.0.1 +
+# real_ip_header proxy_protocol sont GLOBAUX dans nginx.conf, donc $remote_addr = vraie IP client).
+# => un vhost en `listen 443 ssl` n'est JAMAIS servi publiquement (cert par defaut -> curl exit 60).
+# Calque donc le pattern des autres sites : 8443 ssl proxy_protocol.
+#
+# Le token long impose `map_hash_bucket_size` >= 128. Remplacer __MEM_READ_TOKEN__ au deploiement.
+
+map_hash_bucket_size 128;
 map $http_authorization $mem_ok { default 0; "Bearer __MEM_READ_TOKEN__" 1; }
 limit_req_zone $binary_remote_addr zone=mem:10m rate=30r/m;
 
 server {
-    listen 80;
     server_name mem.woutils.com;
-    return 301 https://$host$request_uri;
-}
+    listen 8443 ssl proxy_protocol;
 
-server {
-    listen 443 ssl;
-    server_name mem.woutils.com;
+    ssl_certificate     /etc/letsencrypt/live/mem.woutils.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/mem.woutils.com/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
-    # ssl_certificate / ssl_certificate_key : ajoutes par certbot
-
-    allow 82.64.87.227;     # maison / IP publique
+    # Allowlist IP. Depuis le LAN du VPS, le hairpin NAT fait voir la passerelle (192.168.1.254).
+    allow 82.64.87.227;     # IP publique
     allow 193.252.56.212;   # bureau
+    allow 192.168.1.254;    # passerelle LAN maison (hairpin NAT)
     deny all;
 
     access_log /var/log/nginx/mem.access.log;
@@ -25,9 +35,19 @@ server {
         limit_req zone=mem burst=10 nodelay;
         proxy_pass http://127.0.0.1:8302;
         proxy_http_version 1.1;
-        proxy_set_header Host $host;
+        proxy_set_header Host $host;          # le serveur MCP doit allowlister ce Host (MULTISERVICE_HTTP_ALLOWED_HOSTS)
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_buffering off;
+        proxy_buffering off;                  # streamable-http / SSE
         proxy_read_timeout 1h;
     }
+
+    location / { return 404; }
+}
+
+# Redirection 80 -> 443 (+ challenge HTTP-01 de certbot).
+server {
+    if ($host = mem.woutils.com) { return 301 https://$host$request_uri; }
+    listen 80;
+    server_name mem.woutils.com;
+    return 404;
 }
