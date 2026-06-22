@@ -86,3 +86,29 @@ curl -s -o /dev/null -w "%{http_code}\n" https://mem.example.com/mcp   # sans to
 `recall_semantic` se replie en lexical (pas d'Ollama dans le conteneur ; index non monté). Les 11
 autres outils fonctionnent. Sémantique réel = phase 2. `MEM_WRITE_TOKEN` : réservé, non utilisé
 (écriture distante = phase 2).
+
+## Écriture distante (ingest mTLS) — phase 2
+
+1. **CA + cert client + clé HMAC** (root) :
+   ```bash
+   bash /home/<user>/mem-mcp-src/deploy/gen-mtls.sh bureau project:bureau
+   # ajouter l'entree imprimee dans /home/<user>/mem-secrets/ingest-clients.json
+   ```
+2. **Conteneur d'ingest** :
+   ```bash
+   cd /home/<user>/mem-mcp-src
+   docker build -f deploy/Dockerfile.ingest -t mem-ingest .
+   bash deploy/docker-run-ingest.sh
+   ```
+3. **nginx** : appliquer les ajouts mTLS + `location /ingest` du vhost, `nginx -t && systemctl reload nginx`.
+4. **Poste client** : copier `client.crt`, `client.key`, `hmac.key`, puis :
+   ```bash
+   export MEM_INGEST_URL=https://mem.example.com/ingest
+   export MEM_CLIENT_CERT=/chemin/client.crt MEM_CLIENT_KEY=/chemin/client.key
+   export MEM_HMAC_KEY=$(cat /chemin/hmac.key)
+   memlog-http "ma decision depuis le bureau" --kind decision --session bureau
+   ```
+   (le serveur impose `source=project:bureau` via le CN du certificat.)
+
+> Le registre (`ingest-clients.json`) et les clés vivent dans `/home/<user>/mem-secrets/`,
+> **hors** de `~/.aethercore` : le conteneur de lecture (`:ro`) ne peut pas les lire.
