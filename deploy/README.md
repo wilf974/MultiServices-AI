@@ -40,7 +40,7 @@ claude mcp list    # -> multiservice-memory ... connected
 
 ## Smoke tests (depuis une IP allowlistée)
 ```bash
-# avec token -> 200/handshake
+# avec token -> 200 ou 406 selon l'en-tete Accept (le GET nu renvoie 406 : le serveur tourne)
 curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer <MEM_READ_TOKEN>" https://mem.example.com/mcp
 # sans token -> 401
 curl -s -o /dev/null -w "%{http_code}\n" https://mem.example.com/mcp
@@ -52,6 +52,7 @@ curl -s -o /dev/null -w "%{http_code}\n" https://mem.example.com/mcp
 `nginx -t && systemctl reload nginx`, et mettre à jour le header des clients.
 
 ## Limite connue (MVP)
-`recall_semantic` nécessite Ollama + index, **absents du conteneur MVP** → cet outil
-renverra une erreur. Les 11 autres outils (lexicaux) fonctionnent. Sémantique = phase 2.
+`recall_semantic` nécessite Ollama + index, **absents du conteneur MVP**. L'index n'étant
+volontairement pas monté (cf. `docker-run-mem.sh`), cet outil **se replie proprement en lexical**.
+Les 11 autres outils (lexicaux) fonctionnent pleinement. Sémantique réel = phase 2.
 `MEM_WRITE_TOKEN` : réservé, non utilisé (l'écriture distante est phase 2).
