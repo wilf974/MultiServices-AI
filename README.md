@@ -292,6 +292,27 @@ Then point an MCP-capable client at it. A minimal client config looks like:
 
 > The server caches modules at import; restart the client after adding tools.
 
+### Remote access (hosted HTTP server)
+
+The same read-only surface can be served over **HTTPS** for clients on other networks — one central
+journal, no copy on the clients. Run the streamable-HTTP entrypoint (behind a reverse proxy that
+terminates TLS and authenticates):
+
+```bash
+multiservice-mcp-http   # read-only tools over streamable-HTTP (default 0.0.0.0:8302)
+```
+
+DNS-rebinding protection stays **on**: declare the public Host(s) you serve via
+`MULTISERVICE_HTTP_ALLOWED_HOSTS` (comma-separated, e.g. `mem.example.com`). Put it behind a reverse
+proxy adding TLS + a bearer token + an IP allowlist, then connect any machine:
+
+```bash
+claude mcp add --transport http multiservice-memory https://mem.example.com/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+A ready-to-use recipe (Docker with the journal mounted **read-only** + nginx) is in [`deploy/`](deploy/).
+
 ---
 
 ## CLI
@@ -333,7 +354,9 @@ regression test; every issue surfaced by real usage becomes a test.
 
 - **Multi-provider routing** — optional cloud backends behind the same interface, governed by the
   "sensitive → local only" policy; exploit cloud prompt-caching where the local model can't.
-- **A second (cloud-side) read-only surface.**
+- ✅ **A second (hosted) read-only surface** — shipped: streamable-HTTP server, see [`deploy/`](deploy/).
+- **Authenticated remote write (ingest)** — let remote machines feed the central journal (separate
+  write token), instead of only reading it.
 
 ---
 
