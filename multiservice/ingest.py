@@ -70,6 +70,7 @@ class NonceStore:
         tmp.replace(self.path)
 
 
+# ATTENTION: `registry` contient des secrets (hmac_key) -> ne jamais logger cet argument.
 def ingest(payload: Dict[str, Any], cn: str, signature: str, body: bytes,
            registry: Dict[str, Dict[str, str]], journal_path, nonce_store: NonceStore,
            now: Optional[datetime] = None, window_s: int = 300) -> Dict[str, Any]:
@@ -83,7 +84,9 @@ def ingest(payload: Dict[str, Any], cn: str, signature: str, body: bytes,
     if not check_freshness(payload.get("ts", ""), now, window_s):
         return {"status": 401, "error": "stale timestamp"}
     nonce = payload.get("nonce", "")
-    if not nonce or nonce_store.seen(nonce):
+    if not nonce:
+        return {"status": 422, "error": "missing nonce"}
+    if nonce_store.seen(nonce):
         return {"status": 409, "error": "replay"}
     kind = payload.get("kind", "")
     text = payload.get("text", "")
@@ -101,4 +104,5 @@ def ingest(payload: Dict[str, Any], cn: str, signature: str, body: bytes,
         ev.data.update(payload["data"])
     append_events(journal_path, [ev])
     nonce_store.add(nonce, payload["ts"])
+    nonce_store.prune(now, window_s)
     return {"status": 201, "id": ev.id, "source": source}

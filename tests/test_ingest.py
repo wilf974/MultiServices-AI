@@ -92,3 +92,29 @@ def test_nonce_store_prune(tmp_path):
     ns.add("fresh", NOW.isoformat())
     ns.prune(NOW, window_s=300)
     assert ns.seen("old") is False and ns.seen("fresh") is True
+
+
+def test_missing_nonce_is_422(tmp_path):
+    """Nonce absent -> 422 (pas 409 qui est reserve au rejeu)."""
+    jp = tmp_path / "j.jsonl"
+    ns = ing.NonceStore(tmp_path / "n.jsonl")
+    p = _payload()
+    del p["nonce"]
+    body = json.dumps(p).encode()
+    r = ing.ingest(p, "bureau", _sign(body), body, REG, str(jp), ns, now=NOW)
+    assert r["status"] == 422
+    assert r["error"] == "missing nonce"
+
+
+def test_ingest_prunes_old_nonces(tmp_path):
+    """Apres un ingest valide, les anciens nonces hors-fenetre sont purges."""
+    jp = tmp_path / "j.jsonl"
+    ns = ing.NonceStore(tmp_path / "n.jsonl")
+    old_ts = (NOW - timedelta(hours=1)).isoformat()
+    ns.add("vieux", old_ts)
+    p = _payload(nonce="frais")
+    body = json.dumps(p).encode()
+    r = ing.ingest(p, "bureau", _sign(body), body, REG, str(jp), ns, now=NOW)
+    assert r["status"] == 201
+    assert ns.seen("vieux") is False
+    assert ns.seen("frais") is True
