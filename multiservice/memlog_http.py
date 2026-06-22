@@ -30,12 +30,17 @@ def main() -> None:
     p.add_argument("--session", default="ingest")
     a = p.parse_args()
 
+    import ssl
     import httpx
     url = os.environ["MEM_INGEST_URL"]
     body, sig = build_request(a.text, a.kind, a.session, os.environ["MEM_HMAC_KEY"])
-    cert = (os.environ["MEM_CLIENT_CERT"], os.environ["MEM_CLIENT_KEY"])
-    r = httpx.post(url, content=body, cert=cert, timeout=15,
-                   headers={"X-Mem-Signature": sig, "Content-Type": "application/json"})
+    # mTLS : le cert client est porte par un SSLContext (httpx >= 0.28 a retire l'argument cert
+    # des fonctions de haut niveau ; verify=ctx reste valable sur toutes les versions recentes).
+    ctx = ssl.create_default_context()
+    ctx.load_cert_chain(certfile=os.environ["MEM_CLIENT_CERT"], keyfile=os.environ["MEM_CLIENT_KEY"])
+    with httpx.Client(verify=ctx, timeout=15) as client:
+        r = client.post(url, content=body,
+                        headers={"X-Mem-Signature": sig, "Content-Type": "application/json"})
     print(r.status_code, r.text)
 
 
