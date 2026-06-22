@@ -21,6 +21,10 @@ server {
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
+    # mTLS pour l'ingest (CA dediee). 'optional' : /mcp reste en bearer, /ingest exige le cert.
+    ssl_client_certificate /etc/nginx/mtls/mem/ca.crt;
+    ssl_verify_client optional;
+
     # Allowlist IP. Depuis le LAN du VPS, le hairpin NAT fait voir la passerelle (<GW_LAN>).
     allow <IP_PUBLIQUE_MAISON>;     # IP publique
     allow <IP_PUBLIQUE_BUREAU>;   # bureau
@@ -39,6 +43,16 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_buffering off;                  # streamable-http / SSE
         proxy_read_timeout 1h;
+    }
+
+    location /ingest {
+        if ($ssl_client_verify != SUCCESS) { return 403; }
+        limit_req zone=mem burst=10 nodelay;
+        proxy_pass http://127.0.0.1:8303;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Client-CN $ssl_client_s_dn_cn;   # identite imposee au service
     }
 
     location / { return 404; }

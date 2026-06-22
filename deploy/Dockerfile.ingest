@@ -1,0 +1,9 @@
+FROM python:3.13-slim
+WORKDIR /app
+COPY pyproject.toml README.md ./
+COPY multiservice ./multiservice
+RUN pip install --no-cache-dir ".[ingest]"
+EXPOSE 8303
+ENV MULTISERVICE_INGEST_HOST=0.0.0.0 \
+    MULTISERVICE_INGEST_PORT=8303
+CMD ["multiservice-ingest"]
