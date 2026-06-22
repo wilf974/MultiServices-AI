@@ -37,3 +37,12 @@ def test_build_http_server_reads_port_from_env(monkeypatch, tmp_path):
     srv = build_http_server(journal_path=str(jp))
     assert srv.settings.port == 8302
     assert srv.settings.host == "0.0.0.0"
+
+
+def test_http_server_allows_proxied_host(tmp_path):
+    # Derriere le reverse proxy authentifiant, le Host public ne doit pas etre rejete (421).
+    jp = tmp_path / "j.jsonl"
+    jp.write_text("", encoding="utf-8")
+    srv = build_http_server(journal_path=str(jp))
+    assert srv.settings.transport_security is not None
+    assert srv.settings.transport_security.enable_dns_rebinding_protection is False

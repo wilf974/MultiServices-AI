@@ -125,11 +125,19 @@ def build_http_server(host: str = None, port: int = None, journal_path: str = No
     """Serveur FastMCP configure pour le transport streamable-http (conteneur).
     host/port surchargeables par env (MULTISERVICE_HTTP_HOST / MULTISERVICE_HTTP_PORT)."""
     import os
+    from mcp.server.transport_security import TransportSecuritySettings
     h = host or os.environ.get("MULTISERVICE_HTTP_HOST", "0.0.0.0")
     p = int(port if port is not None else os.environ.get("MULTISERVICE_HTTP_PORT", "8302"))
     srv = build_server(journal_path)
     srv.settings.host = h
     srv.settings.port = p
+    # Le conteneur n'ecoute que sur 127.0.0.1, derriere un reverse proxy qui authentifie
+    # (TLS + bearer token + allowlist IP). Le proxy transmet le Host public (ex: mem.example.com) ;
+    # sans cela la protection anti-DNS-rebinding du SDK renvoie 421 sur tout Host non-localhost.
+    # On la desactive : la barriere de securite est au niveau du proxy, pas du Host.
+    srv.settings.transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=False
+    )
     return srv
 
 
