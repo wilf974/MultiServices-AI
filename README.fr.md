@@ -299,6 +299,29 @@ Puis pointer un client compatible MCP dessus. Une config client minimale :
 
 > Le serveur met les modules en cache à l'import ; redémarre le client après avoir ajouté un outil.
 
+### Accès distant (serveur HTTP hébergé)
+
+La même surface en lecture seule peut être servie en **HTTPS** pour des postes sur d'autres réseaux
+— un journal central, aucune copie sur les clients. Lancer le point d'entrée streamable-HTTP
+(derrière un reverse proxy qui termine le TLS et authentifie) :
+
+```bash
+multiservice-mcp-http   # outils lecture seule en streamable-HTTP (défaut 0.0.0.0:8302)
+```
+
+La protection anti-DNS-rebinding reste **active** : déclarer le(s) Host public(s) servi(s) via
+`MULTISERVICE_HTTP_ALLOWED_HOSTS` (séparés par des virgules, ex. `mem.example.com`). Le placer
+derrière un reverse proxy ajoutant TLS + bearer token + allowlist IP, puis brancher n'importe quel
+poste :
+
+```bash
+claude mcp add --transport http multiservice-memory https://mem.example.com/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+Une recette prête à l'emploi (Docker avec le journal monté en **lecture seule** + nginx) est dans
+[`deploy/`](deploy/).
+
 ---
 
 ## CLI
@@ -337,7 +360,9 @@ devient un test.
 - **Routage multi-fournisseurs** — backends cloud optionnels derrière la même interface, gouvernés
   par la politique « sensible → local seul » ; exploiter le prompt-caching cloud là où le modèle
   local ne le peut pas.
-- **Une seconde surface (côté cloud) en lecture seule.**
+- ✅ **Une seconde surface (hébergée) en lecture seule** — livrée : serveur streamable-HTTP, voir [`deploy/`](deploy/).
+- **Écriture distante authentifiée (ingest)** — laisser les postes distants alimenter le journal
+  central (token d'écriture séparé), au lieu de seulement le lire.
 
 ---
 
