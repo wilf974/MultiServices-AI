@@ -121,5 +121,38 @@ def main() -> None:
     build_server().run()
 
 
+def build_http_server(host: str = None, port: int = None, journal_path: str = None):
+    """Serveur FastMCP configure pour le transport streamable-http (conteneur).
+    host/port surchargeables par env (MULTISERVICE_HTTP_HOST / MULTISERVICE_HTTP_PORT)."""
+    import os
+    from mcp.server.transport_security import TransportSecuritySettings
+    h = host or os.environ.get("MULTISERVICE_HTTP_HOST", "0.0.0.0")
+    p = int(port if port is not None else os.environ.get("MULTISERVICE_HTTP_PORT", "8302"))
+    srv = build_server(journal_path)
+    srv.settings.host = h
+    srv.settings.port = p
+    # Protection anti-DNS-rebinding : on la GARDE active et on autorise EXPLICITEMENT le(s) Host
+    # public(s) servi(s) par le reverse proxy, via MULTISERVICE_HTTP_ALLOWED_HOSTS (separes par des
+    # virgules, ex: "mem.woutils.com,127.0.0.1:8302"). Le proxy transmet le Host public, que le SDK
+    # rejetterait sinon (421). Sans la variable : defaut du SDK (protection active, localhost) =
+    # fail-closed, aucun Host public accepte. On ne desactive JAMAIS la protection (le bind par
+    # defaut 0.0.0.0 reste sain car tout Host non autorise est refuse, pas seulement filtre au proxy).
+    allowed = os.environ.get("MULTISERVICE_HTTP_ALLOWED_HOSTS", "").strip()
+    if allowed:
+        hosts = [x.strip() for x in allowed.split(",") if x.strip()]
+        origins = [f"https://{x}" for x in hosts if "://" not in x and ":" not in x]
+        srv.settings.transport_security = TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=hosts,
+            allowed_origins=origins,
+        )
+    return srv
+
+
+def main_http() -> None:
+    """Point d'entree HTTP : sert la memoire en LECTURE SEULE via streamable-http."""
+    build_http_server().run(transport="streamable-http")
+
+
 if __name__ == "__main__":
     main()
