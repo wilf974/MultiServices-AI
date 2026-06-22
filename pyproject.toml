@@ -24,6 +24,7 @@ dev = ["pytest>=8.0"]
 [project.scripts]
 projlog = "multiservice.projlog:main"
 multiservice-mcp = "multiservice.mcp_server:main"   # commande sans flag -> evite le bug "-m" de claude mcp add
+multiservice-mcp-http = "multiservice.mcp_server:main_http"   # surface HTTP lecture seule (conteneur)
 
 [project.urls]
 Homepage = "https://github.com/wilf974/MultiServices-AI"
