@@ -299,11 +299,16 @@ Puis pointer un client compatible MCP dessus. Une config client minimale :
 
 > Le serveur met les modules en cache à l'import ; redémarre le client après avoir ajouté un outil.
 
-### Accès distant (serveur HTTP hébergé)
+### Accès distant (serveur HTTP hébergé) — optionnel
 
-La même surface en lecture seule peut être servie en **HTTPS** pour des postes sur d'autres réseaux
-— un journal central, aucune copie sur les clients. Lancer le point d'entrée streamable-HTTP
-(derrière un reverse proxy qui termine le TLS et authentifie) :
+> **Optionnel, opt-in.** Par défaut la mémoire est **locale et souveraine** — le serveur stdio
+> ci-dessus garde tout sur ta machine et **rien n'exige de serveur**. Centraliser le journal sur un
+> VPS ne concerne que ceux qui *veulent* atteindre un journal partagé depuis plusieurs
+> machines/réseaux.
+
+Si tu choisis cette option, la même surface en lecture seule est servie en **HTTPS** — un journal
+central, aucune copie sur les clients (les données restent sur un hôte que *tu* contrôles). Lancer le
+point d'entrée streamable-HTTP (derrière un reverse proxy qui termine le TLS et authentifie) :
 
 ```bash
 multiservice-mcp-http   # outils lecture seule en streamable-HTTP (défaut 0.0.0.0:8302)

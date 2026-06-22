@@ -292,11 +292,15 @@ Then point an MCP-capable client at it. A minimal client config looks like:
 
 > The server caches modules at import; restart the client after adding tools.
 
-### Remote access (hosted HTTP server)
+### Remote access (hosted HTTP server) — optional
 
-The same read-only surface can be served over **HTTPS** for clients on other networks — one central
-journal, no copy on the clients. Run the streamable-HTTP entrypoint (behind a reverse proxy that
-terminates TLS and authenticates):
+> **Optional, opt-in.** By default the memory is **local and sovereign** — the stdio server above
+> keeps everything on your machine and nothing requires a server. Centralizing the journal on a VPS
+> is only for those who *want* to reach one shared journal from several machines/networks.
+
+If you opt in, the same read-only surface is served over **HTTPS** — one central journal, no copy on
+the clients (the data stays on a host *you* control). Run the streamable-HTTP entrypoint (behind a
+reverse proxy that terminates TLS and authenticates):
 
 ```bash
 multiservice-mcp-http   # read-only tools over streamable-HTTP (default 0.0.0.0:8302)
