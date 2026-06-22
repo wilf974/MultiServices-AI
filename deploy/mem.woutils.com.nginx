@@ -1,0 +1,33 @@
+map $http_authorization $mem_ok { default 0; "Bearer __MEM_READ_TOKEN__" 1; }
+limit_req_zone $binary_remote_addr zone=mem:10m rate=30r/m;
+
+server {
+    listen 80;
+    server_name mem.woutils.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name mem.woutils.com;
+
+    # ssl_certificate / ssl_certificate_key : ajoutes par certbot
+
+    allow 82.64.87.227;     # maison / IP publique
+    allow 193.252.56.212;   # bureau
+    deny all;
+
+    access_log /var/log/nginx/mem.access.log;
+    error_log  /var/log/nginx/mem.error.log;
+
+    location /mcp {
+        if ($mem_ok = 0) { return 401; }
+        limit_req zone=mem burst=10 nodelay;
+        proxy_pass http://127.0.0.1:8302;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_buffering off;
+        proxy_read_timeout 1h;
+    }
+}
