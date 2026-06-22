@@ -121,5 +121,22 @@ def main() -> None:
     build_server().run()
 
 
+def build_http_server(host: str = None, port: int = None, journal_path: str = None):
+    """Serveur FastMCP configure pour le transport streamable-http (conteneur).
+    host/port surchargeables par env (MULTISERVICE_HTTP_HOST / MULTISERVICE_HTTP_PORT)."""
+    import os
+    h = host or os.environ.get("MULTISERVICE_HTTP_HOST", "0.0.0.0")
+    p = int(port if port is not None else os.environ.get("MULTISERVICE_HTTP_PORT", "8302"))
+    srv = build_server(journal_path)
+    srv.settings.host = h
+    srv.settings.port = p
+    return srv
+
+
+def main_http() -> None:
+    """Point d'entree HTTP : sert la memoire en LECTURE SEULE via streamable-http."""
+    build_http_server().run(transport="streamable-http")
+
+
 if __name__ == "__main__":
     main()
