@@ -112,3 +112,14 @@ autres outils fonctionnent. Sémantique réel = phase 2. `MEM_WRITE_TOKEN` : ré
 
 > Le registre (`ingest-clients.json`) et les clés vivent dans `/home/adminvps/mem-secrets/`,
 > **hors** de `~/.aethercore` : le conteneur de lecture (`:ro`) ne peut pas les lire.
+
+## API REST web (LLM web) — central-only
+
+1. **Token** (root) : `bash deploy/gen-webapi-token.sh chatgpt project:chatgpt`
+   puis ajouter l'entree imprimee dans `/home/adminvps/mem-secrets/webapi-tokens.json`.
+2. **Conteneur** : `docker build -f deploy/Dockerfile.webapi -t mem-api . && bash deploy/docker-run-webapi.sh`
+3. **DNS + TLS** : pointer `api-mem.woutils.com` vers le VPS ; `certbot` pour le cert ;
+   appliquer `deploy/api-mem.woutils.com.nginx` ; `nginx -t && systemctl reload nginx`.
+4. **Client web** : `Authorization: Bearer <token>` sur `https://api-mem.woutils.com`
+   (`GET /recall?q=...`, `POST /remember`, `GET /recent`, schema `GET /openapi.json`).
+   La source des ecritures est imposee par le token (jamais le client).
