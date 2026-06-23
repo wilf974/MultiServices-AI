@@ -32,8 +32,10 @@ def _load_registry() -> dict:
 
 def require_source(authorization: Optional[str] = Header(default=None)) -> str:
     token = None
-    if authorization and authorization.startswith("Bearer "):
-        token = authorization[len("Bearer "):].strip()
+    if authorization:
+        parts = authorization.split(None, 1)
+        if len(parts) == 2 and parts[0].lower() == "bearer":   # scheme insensible a la casse (RFC 6750)
+            token = parts[1].strip()
     source = webapi.resolve_token(token, _load_registry())
     if not source:
         raise HTTPException(status_code=401, detail="invalid or missing token")
