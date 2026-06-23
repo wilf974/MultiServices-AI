@@ -59,6 +59,13 @@ def test_recall_and_recent(client):
     assert rr.status_code == 200 and "latest" in rr.json()
 
 
+def test_openapi_has_absolute_server(client):
+    c, _ = client
+    spec = c.get("/openapi.json").json()
+    assert spec.get("servers"), "openapi doit declarer servers (requis par Custom GPT Actions)"
+    assert spec["servers"][0]["url"].startswith("https://")
+
+
 def test_main_refuses_without_enable(monkeypatch):
     monkeypatch.delenv("MULTISERVICE_WEBAPI_ENABLE", raising=False)
     from multiservice.webapi_server import main

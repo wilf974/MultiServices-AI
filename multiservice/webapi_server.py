@@ -11,7 +11,11 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 
 from . import config, journal, memory, projlog, webapi
 
-app = FastAPI(title="MultiService IA - Memory Web API", version="1.0.0")
+# URL publique absolue dans openapi.json (requis par les Custom GPT Actions ; sinon erreur
+# "Impossible de trouver une URL valide dans servers"). Surchargeable par env.
+_PUBLIC_URL = os.environ.get("MULTISERVICE_WEBAPI_PUBLIC_URL", "https://api-mem.woutils.com")
+app = FastAPI(title="MultiService IA - Memory Web API", version="1.0.0",
+              servers=[{"url": _PUBLIC_URL}])
 
 
 def _tokens_path() -> str:
