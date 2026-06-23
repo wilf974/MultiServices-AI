@@ -1,21 +1,27 @@
 """API REST web (FastAPI) exposant la memoire centrale aux LLM web. CENTRAL-ONLY.
-Lecture (recall/recent) + ecriture (remember, source imposee par le token). Auth bearer.
-OpenAPI auto (/openapi.json, /docs) pour les Custom GPT Actions."""
+Lecture (recall/recent) + ecriture (remember, source imposee par le token). Auth bearer
+(securityScheme global, pas de param authorization). OpenAPI auto (/openapi.json, /docs)
+avec servers absolu + modeles de reponse, pour les Custom GPT Actions."""
 from __future__ import annotations
 
 import json
 import os
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
 
 from . import config, journal, memory, projlog, webapi
 
-# URL publique absolue dans openapi.json (requis par les Custom GPT Actions ; sinon erreur
-# "Impossible de trouver une URL valide dans servers"). Surchargeable par env.
+# URL publique absolue dans openapi.json (requis par les Custom GPT Actions). Surchargeable par env.
 _PUBLIC_URL = os.environ.get("MULTISERVICE_WEBAPI_PUBLIC_URL", "https://api-mem.woutils.com")
 app = FastAPI(title="MultiService IA - Memory Web API", version="1.0.0",
               servers=[{"url": _PUBLIC_URL}])
+
+# Auth bearer declaree comme securityScheme global (et NON comme parametre header) : ChatGPT
+# l'injecte via la config d'auth de l'Action. auto_error=False -> on renvoie notre propre 401.
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def _tokens_path() -> str:
@@ -34,38 +40,68 @@ def _load_registry() -> dict:
     return {}
 
 
-def require_source(authorization: Optional[str] = Header(default=None)) -> str:
-    token = None
-    if authorization:
-        parts = authorization.split(None, 1)
-        if len(parts) == 2 and parts[0].lower() == "bearer":   # scheme insensible a la casse (RFC 6750)
-            token = parts[1].strip()
+def require_source(creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme)) -> str:
+    token = creds.credentials if creds else None
     source = webapi.resolve_token(token, _load_registry())
     if not source:
         raise HTTPException(status_code=401, detail="invalid or missing token")
     return source
 
 
-@app.get("/health")
+# --- modeles de reponse (schema OpenAPI explicite avec properties, pour les Custom GPT) ---
+class HealthResponse(BaseModel):
+    status: str
+
+
+class MemoryHit(BaseModel):
+    id: str
+    type: str
+    source: str
+    valid_from: Optional[str] = None
+    session_id: Optional[str] = None
+    score: Optional[float] = None
+    text: Optional[str] = None
+    superseded: Optional[bool] = None
+
+
+class RecallResponse(BaseModel):
+    results: list[MemoryHit]
+
+
+class RecentResponse(BaseModel):
+    since: Optional[str] = None
+    days: int
+    count: Optional[int] = None
+    decisions: list[dict] = []
+    corrections: list[dict] = []
+    latest: list[dict] = []
+
+
+class RememberResponse(BaseModel):
+    id: str
+    source: str
+
+
+@app.get("/health", response_model=HealthResponse)
 def health() -> dict:
     return {"status": "ok"}
 
 
-@app.get("/recall")
+@app.get("/recall", response_model=RecallResponse)
 def recall(q: str = Query(..., min_length=1), k: int = Query(10, ge=1, le=50),
            source: str = Depends(require_source)) -> dict:
     events = journal.read_events(_journal_path())
     return {"results": memory.recall(events, q, k=k)}
 
 
-@app.get("/recent")
+@app.get("/recent", response_model=RecentResponse)
 def recent(days: int = Query(7, ge=1, le=90),
            source: str = Depends(require_source)) -> dict:
     events = journal.read_events(_journal_path())
     return memory.recent(events, days=days)
 
 
-@app.post("/remember", status_code=201)
+@app.post("/remember", status_code=201, response_model=RememberResponse)
 def remember(req: webapi.RememberRequest,
              source: str = Depends(require_source)) -> dict:
     try:

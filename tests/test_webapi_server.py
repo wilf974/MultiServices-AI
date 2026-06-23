@@ -66,6 +66,20 @@ def test_openapi_has_absolute_server(client):
     assert spec["servers"][0]["url"].startswith("https://")
 
 
+def test_openapi_declares_bearer_security_not_header_param(client):
+    c, _ = client
+    spec = c.get("/openapi.json").json()
+    schemes = spec.get("components", {}).get("securitySchemes", {})
+    assert any(s.get("type") == "http" and s.get("scheme") == "bearer" for s in schemes.values()), \
+        "openapi doit declarer un securityScheme http/bearer global"
+    # plus aucun parametre 'authorization' en header dans les endpoints
+    for path, methods in spec["paths"].items():
+        for verb, op in methods.items():
+            for p in op.get("parameters", []):
+                assert not (p.get("name") == "authorization" and p.get("in") == "header"), \
+                    f"{verb.upper()} {path} ne doit pas exposer 'authorization' en parametre header"
+
+
 def test_main_refuses_without_enable(monkeypatch):
     monkeypatch.delenv("MULTISERVICE_WEBAPI_ENABLE", raising=False)
     from multiservice.webapi_server import main
