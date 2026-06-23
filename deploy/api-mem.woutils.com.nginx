@@ -28,5 +28,6 @@ server {
 server {
     listen 80;
     server_name api-mem.woutils.com;
-    return 301 https://$host$request_uri;
+    location /.well-known/acme-challenge/ { root /var/www; }   # renouvellement certbot (webroot)
+    location / { return 301 https://$host$request_uri; }
 }
