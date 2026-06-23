@@ -1,0 +1,10 @@
+FROM python:3.13-slim
+WORKDIR /app
+COPY pyproject.toml README.md ./
+COPY multiservice ./multiservice
+RUN pip install --no-cache-dir ".[webapi]"
+EXPOSE 8304
+ENV MULTISERVICE_WEBAPI_ENABLE=1 \
+    MULTISERVICE_WEBAPI_HOST=0.0.0.0 \
+    MULTISERVICE_WEBAPI_PORT=8304
+CMD ["multiservice-webapi"]
