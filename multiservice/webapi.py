@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 def resolve_token(token: Optional[str], registry: dict) -> Optional[str]:
@@ -18,6 +18,9 @@ def resolve_token(token: Optional[str], registry: dict) -> Optional[str]:
 
 
 class RememberRequest(BaseModel):
+    # extra="ignore" : un champ 'source' fourni par le client est silencieusement ECARTE
+    # (pilier C2 explicite : la source est imposee par le token, jamais par le client).
+    model_config = ConfigDict(extra="ignore")
     text: str = Field(min_length=1, max_length=8192)
     kind: str = "note"
     session: str = "web"

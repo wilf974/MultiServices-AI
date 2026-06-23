@@ -123,3 +123,8 @@ autres outils fonctionnent. Sémantique réel = phase 2. `MEM_WRITE_TOKEN` : ré
 4. **Client web** : `Authorization: Bearer <token>` sur `https://api-mem.example.com`
    (`GET /recall?q=...`, `POST /remember`, `GET /recent`, schema `GET /openapi.json`).
    La source des ecritures est imposee par le token (jamais le client).
+
+> **Prerequis infra** : le vhost `api-mem.example.com.nginx` ecoute `8443 ssl proxy_protocol`
+> (comme `mem.example.com`/`aether.conf`). Il SUPPOSE un front (HAProxy/nginx amont) qui termine
+> le 443 public et reparle en PROXY protocol vers 8443. Sans ce front, remplacer la directive
+> `listen 8443 ssl proxy_protocol;` par `listen 443 ssl;` et retirer `set_real_ip_from`/`real_ip_header`.
