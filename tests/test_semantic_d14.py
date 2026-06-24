@@ -32,6 +32,22 @@ def test_store_et_build_index_incremental(tmp_path):
     assert set(store.load()) == {"a", "b"}
 
 
+def test_build_index_resilient_nan_et_echec(tmp_path):
+    """Repli item-par-item si un batch echoue (500 NaN Ollama) ; vecteur NaN jamais stocke."""
+    store = EmbeddingStore(tmp_path / "emb.jsonl")
+
+    class BadEmbedder:
+        def embed(self, texts):
+            if len(texts) > 1:                       # simule le 500 d'Ollama en batch
+                raise RuntimeError("HTTP 500 NaN")
+            return [[float("nan"), 1.0]] if texts[0] == "bad" else [[0.1, 0.2]]
+
+    pairs = [("a", "ok1"), ("bad", "bad"), ("c", "ok2")]
+    added = build_index(pairs, BadEmbedder(), store, batch=8)
+    assert added == 2                                # 'bad' (NaN) saute, 'a'/'c' stockes
+    assert set(store.load()) == {"a", "c"}
+
+
 def test_recall_semantic_reordonne_par_sens(tmp_path):
     evs = [_ev("le chien noir court", "a"), _ev("une voiture rouge roule", "b"),
            _ev("le chat et le chien dorment", "c")]

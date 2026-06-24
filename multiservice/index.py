@@ -27,13 +27,18 @@ def main() -> None:
     p.add_argument("--store", default=config.EMBED_PATH)
     p.add_argument("--model", default=config.EMBED_MODEL)
     p.add_argument("--host", default=config.OLLAMA_HOST)
+    # Petit batch : Ollama bge-m3 produit des NaN en embedding batch >= ~8 (bug serveur,
+    # repond 500 "unsupported value: NaN"). 4 est sur ; baisser a 1 si un NaN persiste.
+    p.add_argument("--batch", type=int, default=4)
     a = p.parse_args()
     events = read_events(a.journal)
-    pairs = [(e.id, (e.data.get("text") or e.description or ""))
+    # Cap la longueur : bge-m3 (endpoint Ollama /api/embed) renvoie 500 sur des textes trop
+    # longs. 6000 caracteres suffisent pour capter le sens au recall semantique.
+    pairs = [(e.id, (e.data.get("text") or e.description or "")[:6000])
              for e in events if e.type in _TEXT_TYPES]
     store = EmbeddingStore(a.store)
     embedder = OllamaEmbedder(model=a.model, host=a.host)
-    n = build_index(pairs, embedder, store)
+    n = build_index(pairs, embedder, store, batch=a.batch)
     print(f"[index] {n} nouveaux embeddings ({a.model}) ajoutes -> {a.store}")
     print(f"        total textes candidats : {len(pairs)}")
 
