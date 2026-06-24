@@ -97,15 +97,37 @@ class EmbeddingStore:
         return len(entries)
 
 
+def _is_valid_vec(vec) -> bool:
+    """Rejette None / vide / vecteur contenant un NaN ou un inf (x != x detecte NaN).
+    Ollama/bge-m3 renvoie parfois des NaN qui corrompraient le cosinus -> on ne stocke pas."""
+    if not vec:
+        return False
+    return all(isinstance(x, (int, float)) and x == x and x not in (float("inf"), float("-inf"))
+               for x in vec)
+
+
 def build_index(id_text_pairs: List[tuple], embedder: Embedder, store: EmbeddingStore,
                 batch: int = 32) -> int:
-    """Embed les (id, texte) PAS ENCORE dans le store. Retourne le nb ajoute. Incremental."""
+    """Embed les (id, texte) PAS ENCORE dans le store. Retourne le nb ajoute. Incremental.
+    RESILIENT : si un batch echoue (ex. 500 NaN d'Ollama), repli item par item ; tout
+    embedding invalide (NaN/erreur) est saute (jamais stocke)."""
     have = store.load()
     todo = [(eid, txt) for eid, txt in id_text_pairs if eid not in have and txt.strip()]
     added = 0
     for i in range(0, len(todo), batch):
         chunk = todo[i:i + batch]
-        vecs = embedder.embed([t for _, t in chunk])
-        entries = {eid: vec for (eid, _), vec in zip(chunk, vecs)}
-        added += store.add(entries)
+        try:
+            vecs = embedder.embed([t for _, t in chunk])
+        except Exception:
+            vecs = None
+        if vecs is None or len(vecs) != len(chunk):
+            vecs = []                                  # repli item par item
+            for _, t in chunk:
+                try:
+                    vecs.append(embedder.embed([t])[0])
+                except Exception:
+                    vecs.append(None)
+        entries = {eid: vec for (eid, _), vec in zip(chunk, vecs) if _is_valid_vec(vec)}
+        if entries:
+            added += store.add(entries)
     return added
