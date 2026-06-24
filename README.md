@@ -317,6 +317,17 @@ claude mcp add --transport http multiservice-memory https://mem.example.com/mcp 
 
 A ready-to-use recipe (Docker with the journal mounted **read-only** + nginx) is in [`deploy/`](deploy/).
 
+**Authenticated remote write (ingest).** Remote machines can also *write* to the central journal over
+**mTLS + HMAC** (nonce + timestamp anti-replay); the source is imposed server-side from the client
+certificate's CN — a client can never spoof it. Client command: `memlog-http`. Recipe in
+[`deploy/`](deploy/) (`Dockerfile.ingest`, `gen-mtls.sh`).
+
+**Web REST API (for web LLMs).** A separate **public, token-authenticated** REST surface lets web
+assistants (ChatGPT / Custom GPT, connectors) read and write the central memory: `GET /recall`,
+`POST /remember`, `GET /recent`, plus an auto **OpenAPI** schema (`/openapi.json`) for GPT Actions.
+Each client's bearer token maps to a source (imposed server-side). Central-only, rate-limited. Recipe
+in [`deploy/`](deploy/) (`Dockerfile.webapi`) and [`deploy/SETUP-POSTE-CLIENT.md`](deploy/SETUP-POSTE-CLIENT.md).
+
 ---
 
 ## CLI
@@ -359,8 +370,9 @@ regression test; every issue surfaced by real usage becomes a test.
 - **Multi-provider routing** — optional cloud backends behind the same interface, governed by the
   "sensitive → local only" policy; exploit cloud prompt-caching where the local model can't.
 - ✅ **A second (hosted) read-only surface** — shipped: streamable-HTTP server, see [`deploy/`](deploy/).
-- **Authenticated remote write (ingest)** — let remote machines feed the central journal (separate
-  write token), instead of only reading it.
+- ✅ **Authenticated remote write (ingest)** — shipped: mTLS + HMAC + anti-replay, `memlog-http` client.
+- ✅ **Web REST API for web LLMs** — shipped: public, token-authenticated FastAPI (recall/remember/recent
+  + OpenAPI), Custom GPT-ready. See [`deploy/`](deploy/).
 
 ---
 

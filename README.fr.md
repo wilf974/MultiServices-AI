@@ -327,6 +327,18 @@ claude mcp add --transport http multiservice-memory https://mem.example.com/mcp 
 Une recette prête à l'emploi (Docker avec le journal monté en **lecture seule** + nginx) est dans
 [`deploy/`](deploy/).
 
+**Écriture distante authentifiée (ingest).** Les postes distants peuvent aussi *écrire* dans le
+journal central via **mTLS + HMAC** (anti-rejeu nonce + horodatage) ; la source est **imposée côté
+serveur** depuis le CN du certificat client — impossible de l'usurper. Commande client : `memlog-http`.
+Recette dans [`deploy/`](deploy/) (`Dockerfile.ingest`, `gen-mtls.sh`).
+
+**API REST web (pour les LLM web).** Une surface REST séparée, **publique et authentifiée par token**,
+permet aux assistants web (ChatGPT / Custom GPT, connecteurs) de lire et écrire la mémoire centrale :
+`GET /recall`, `POST /remember`, `GET /recent`, plus un schéma **OpenAPI** auto (`/openapi.json`) pour
+les GPT Actions. Le token bearer de chaque client est mappé à une source (imposée serveur). Central
+uniquement, rate-limité. Recette dans [`deploy/`](deploy/) (`Dockerfile.webapi`) et
+[`deploy/SETUP-POSTE-CLIENT.md`](deploy/SETUP-POSTE-CLIENT.md).
+
 ---
 
 ## CLI
@@ -366,8 +378,9 @@ devient un test.
   par la politique « sensible → local seul » ; exploiter le prompt-caching cloud là où le modèle
   local ne le peut pas.
 - ✅ **Une seconde surface (hébergée) en lecture seule** — livrée : serveur streamable-HTTP, voir [`deploy/`](deploy/).
-- **Écriture distante authentifiée (ingest)** — laisser les postes distants alimenter le journal
-  central (token d'écriture séparé), au lieu de seulement le lire.
+- ✅ **Écriture distante authentifiée (ingest)** — livrée : mTLS + HMAC + anti-rejeu, client `memlog-http`.
+- ✅ **API REST web pour les LLM web** — livrée : FastAPI publique authentifiée par token
+  (recall/remember/recent + OpenAPI), prête pour les Custom GPT. Voir [`deploy/`](deploy/).
 
 ---
 
