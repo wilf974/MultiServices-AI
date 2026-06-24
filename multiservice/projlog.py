@@ -26,6 +26,7 @@ from typing import Optional
 from . import config
 from .events import AetherEvent, EventType
 from .journal import append_events
+from .source_alias import canonical
 
 KINDS = {"decision": EventType.DECISION,
          "correction": EventType.CORRECTION,
@@ -43,6 +44,7 @@ def make_event(kind: str, text: str, source: str = "project:local",
     if not text or not text.strip():
         raise ValueError("texte vide")
     ts = now or datetime.now(timezone.utc)
+    source = canonical(source)                        # C2 : cle de routage canonique a l'ecriture
     return AetherEvent(
         type=KINDS[kind], title=kind, description=text, source=source, observed_at=ts,
         data={"text": text, "session_id": session_id, "turn_id": str(uuid.uuid4())},
