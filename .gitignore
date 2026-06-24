@@ -13,6 +13,9 @@ skills/                 # skills promues locales (peuvent refléter du vécu)
 # Copie locale du projet compagnon (ne pas publier)
 reference/
 
+# Artefacts de travail du workflow SDD (briefs/reports/review-packages) -- local only
+.superpowers/
+
 # Coffre Obsidian personnel (notes de terrain, à curer avant toute publication)
 MultiService-IA-Vault/
 
