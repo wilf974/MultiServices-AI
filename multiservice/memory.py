@@ -12,6 +12,15 @@ from typing import Any, Dict, List, Optional
 
 from .events import AetherEvent, EventType
 from .skills import _norm, _tokens
+from .source_alias import canonical
+
+
+def _source_matches(ev_source: Optional[str], prefix: Optional[str]) -> bool:
+    """Filtre source CANONIQUE : reconcilie les graphies (project:MultiService-IA ~ project:multiservice)
+    sans toucher le journal brut. prefix vide -> tout passe. PUR."""
+    if not prefix:
+        return True
+    return canonical(ev_source).startswith(canonical(prefix))
 
 _TABLE_RE = re.compile(r"\|[^\n]*-{3,}[^\n]*\|")    # ligne de separation d'un tableau markdown
 
@@ -121,7 +130,7 @@ def recall(events: List[AetherEvent], query: str, as_of: Optional[datetime] = No
     for e in events:
         if type_ and e.type.value != type_:
             continue
-        if source_prefix and not (e.source or "").startswith(source_prefix):
+        if not _source_matches(e.source, source_prefix):
             continue
         vf = _aware(e.valid_from)
         if vf and vf > asof:
@@ -527,7 +536,7 @@ def index_coverage(events: List[AetherEvent], vecs: Dict[str, Any],
             continue
         if type_ and e.type.value != type_:
             continue
-        if source_prefix and not (e.source or "").startswith(source_prefix):
+        if not _source_matches(e.source, source_prefix):
             continue
         vf = _aware(e.valid_from)
         if vf and vf > asof:
@@ -563,7 +572,7 @@ def recall_semantic(events: List[AetherEvent], query: str, embedder, store,
     for e in events:
         if type_ and e.type.value != type_:
             continue
-        if source_prefix and not (e.source or "").startswith(source_prefix):
+        if not _source_matches(e.source, source_prefix):
             continue
         vf = _aware(e.valid_from)
         if vf and vf > asof:
