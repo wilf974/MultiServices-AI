@@ -121,6 +121,51 @@ def test_remember_text_requis(tmp_path):
     assert ei.value.kind == "bad_args"
 
 
+def _seed_multi(path):
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    evs = [
+        AetherEvent(type=EventType.NOTE, title="n", description="cache alpha 1", source="project:alpha",
+                    observed_at=ts, data={"text": "le cache alpha v1"}),
+        AetherEvent(type=EventType.DECISION, title="d", description="cache alpha 2", source="project:alpha",
+                    observed_at=ts, data={"text": "decision cache alpha"}),
+        AetherEvent(type=EventType.NOTE, title="n", description="cache beta", source="project:beta",
+                    observed_at=ts, data={"text": "le cache beta"}),
+    ]
+    append_events(str(path), evs)
+    return str(path)
+
+
+def test_specs_sources_browse():
+    names = {t["function"]["name"] for t in build_tool_specs()}
+    assert {"sources", "browse"} <= names
+
+
+def test_sources_liste_les_namespaces(tmp_path):
+    jp = _seed_multi(tmp_path / "j.jsonl")
+    res = run_tool("sources", {}, jp)
+    d = {x["source"]: x["count"] for x in res}
+    assert d["project:alpha"] == 2 and d["project:beta"] == 1
+
+
+def test_browse_par_source_sans_mot_cle(tmp_path):
+    jp = _seed_multi(tmp_path / "j.jsonl")
+    res = run_tool("browse", {"source": "project:alpha"}, jp)
+    assert isinstance(res, list) and len(res) == 2
+    assert all(h["source"] == "project:alpha" for h in res)
+
+
+def test_browse_filtre_type(tmp_path):
+    jp = _seed_multi(tmp_path / "j.jsonl")
+    res = run_tool("browse", {"type": "decision"}, jp)
+    assert len(res) == 1 and res[0]["type"] == "decision"
+
+
+def test_recall_filtre_par_source(tmp_path):
+    jp = _seed_multi(tmp_path / "j.jsonl")
+    res = run_tool("recall", {"query": "cache", "source": "project:beta"}, jp)
+    assert res and all(h["source"].startswith("project:beta") for h in res)
+
+
 def test_remember_dedup(tmp_path):
     jp = _seed(tmp_path / "j.jsonl")
     run_tool("remember", {"text": "fait identique a memoriser"}, jp)

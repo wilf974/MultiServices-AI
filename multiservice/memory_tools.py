@@ -11,6 +11,7 @@ Miroir des outils du serveur MCP (meme semantique), mais cote modele local.
 from __future__ import annotations
 
 import uuid
+from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -52,9 +53,12 @@ def build_tool_specs() -> List[Dict[str, Any]]:
     """Panel read-only expose au modele (le modele choisit quand appeler)."""
     s = "string"
     return [
-        _spec("recall", "Cherche dans la memoire les souvenirs pertinents (lexical, lecture seule).",
+        _spec("recall", "Cherche des souvenirs pertinents (lexical, lecture seule). Filtres optionnels: "
+              "source (ex 'project:chatgpt') et type (decision/note/...).",
               {"query": {"type": s, "description": "termes/sujet a rechercher"},
-               "k": {"type": "integer", "description": "nb max de souvenirs (defaut 10)"}},
+               "k": {"type": "integer", "description": "nb max de souvenirs (defaut 10)"},
+               "source": {"type": s, "description": "filtre par source/projet (prefixe, optionnel)"},
+               "type": {"type": s, "description": "filtre par type d'event (optionnel)"}},
               ["query"]),
         _spec("recall_semantic", "Recall HYBRIDE (semantique local + lexical). Suggestif.",
               {"query": {"type": s, "description": "sujet a rechercher"},
@@ -72,6 +76,14 @@ def build_tool_specs() -> List[Dict[str, Any]]:
               {"query": {"type": s, "description": "sujet"},
                "k": {"type": "integer", "description": "nb max (defaut 5)"}}, ["query"]),
         _spec("lessons", "Lecons tirees des corrections (C3) + verite courante. Aucun argument.", {}),
+        _spec("sources", "CARTE de toute la memoire : liste TOUS les namespaces/projets (source) avec "
+              "le nombre d'entrees. A appeler pour savoir QUOI existe avant de chercher. Aucun argument.", {}),
+        _spec("browse", "PARCOURIR la memoire sans mot-cle : entrees filtrees par source (projet) et/ou "
+              "type, les plus recentes d'abord. Pour explorer un projet entier (la ou recall, lexical, "
+              "ne matche pas).",
+              {"source": {"type": s, "description": "filtre source/projet (prefixe, optionnel)"},
+               "type": {"type": s, "description": "filtre type (decision/note/..., optionnel)"},
+               "k": {"type": "integer", "description": "nb max d'entrees (defaut 20)"}}),
         _spec("remember",
               "Memorise une OBSERVATION dans TA memoire dediee (project:ollama, append-only). "
               "Pour tes apprentissages durables, pas le bruit. Tu ne peux pas decider/valider "
@@ -102,7 +114,27 @@ def run_tool(name: str, args: Dict[str, Any], journal_path: str,
         q = args.get("query")
         if not q:
             raise ToolError("bad_args", "recall: 'query' requis")
-        return memory.recall(events, q, k=_as_int(args.get("k"), 10))
+        return memory.recall(events, q, k=_as_int(args.get("k"), 10),
+                             type_=(args.get("type") or None),
+                             source_prefix=(args.get("source") or None))
+
+    if name == "sources":                              # carte complete de la memoire
+        c = Counter(e.source for e in events)
+        return [{"source": src, "count": n} for src, n in c.most_common()]
+
+    if name == "browse":                               # parcourir sans mot-cle (par source/type)
+        src = (args.get("source") or "").strip()
+        typ = (args.get("type") or "").strip()
+        sel = [e for e in events
+               if (not src or e.source.startswith(src)) and (not typ or e.type.value == typ)]
+        sel.sort(key=lambda e: (getattr(e, "valid_from", None) or e.observed_at), reverse=True)
+        out = []
+        for e in sel[:_as_int(args.get("k"), 20)]:
+            vf = getattr(e, "valid_from", None)
+            txt = (e.data.get("text") if isinstance(e.data, dict) else None) or e.description or ""
+            out.append({"id": e.id, "type": e.type.value, "source": e.source,
+                        "valid_from": vf.isoformat() if vf else None, "text": txt[:300]})
+        return out
 
     if name == "recall_semantic":
         q = args.get("query")
