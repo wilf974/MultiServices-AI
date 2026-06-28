@@ -40,6 +40,7 @@ class TurnResult:
     count_source: str
     routing: dict
     used_memory_tools: bool
+    agent: Optional[object] = None       # AgentResult si outils memoire utilises (sinon None)
 
 
 def should_expose_memory_tools(route: str, memory_tools_enabled: bool) -> bool:
@@ -66,7 +67,7 @@ def serve_turn(router: Router, prompt: str, sent: List[Message], cloud_ok: bool,
             "cloud_ok": cloud_ok, "has_cloud": router.cloud is not None,
             "memory_tool_calls": sum(1 for e in res.tool_events if e.type == EventType.TOOL_CALL),
         }
-        return TurnResult(res.completion, router.local.count_source, prov, True)
+        return TurnResult(res.completion, router.local.count_source, prov, True, agent=res)
     completion, count_source, prov = router.generate(
         prompt, cloud_ok=cloud_ok, sent=sent, on_token=on_token)
     return TurnResult(completion, count_source, prov, False)
