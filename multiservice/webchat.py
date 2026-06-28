@@ -10,9 +10,12 @@ Lancer :  python -m multiservice.webchat       # puis http://127.0.0.1:8765
 from __future__ import annotations
 
 import argparse
+import glob
 import json
+import os
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.request import urlopen
 
@@ -80,6 +83,38 @@ def chat_response(router: Router, message: str, history: Optional[List[dict]] = 
 # Serveur HTTP (stdlib, zero dependance), bind 127.0.0.1.
 # --------------------------------------------------------------------------------------------------
 
+_GGUF_CACHE: Dict[str, object] = {}      # slot unique {"path","backend"} : un GGUF charge a la fois
+
+
+def _is_gguf(model: str) -> bool:
+    return bool(model) and model.lower().endswith(".gguf")
+
+
+def _get_gguf_backend(path: str):
+    """Charge un GGUF in-process (EmbeddedGGUF), CACHE slot-unique : charger coute RAM/VRAM, on garde
+    le dernier et on libere l'ancien si on change de modele."""
+    if _GGUF_CACHE.get("path") == path and _GGUF_CACHE.get("backend") is not None:
+        return _GGUF_CACHE["backend"]
+    _GGUF_CACHE.clear()                                 # libere l'ancien modele (RAM/VRAM)
+    from .backends import EmbeddedGGUF
+    be = EmbeddedGGUF(model_path=path, n_ctx=config.N_CTX, n_gpu_layers=config.N_GPU_LAYERS)
+    _GGUF_CACHE["path"] = path
+    _GGUF_CACHE["backend"] = be
+    return be
+
+
+def _gguf_files() -> List[str]:
+    """Liste les .gguf connus (dossier du modele configure + Claude/Projects) pour le selecteur."""
+    dirs = {str(Path(config.MODEL_PATH).parent), str(Path.home() / "Claude" / "Projects")}
+    found: List[str] = []
+    for d in dirs:
+        try:
+            found += sorted(glob.glob(os.path.join(d, "*.gguf")))
+        except Exception:
+            pass
+    return found
+
+
 def _ollama_models() -> List[str]:
     """Liste les modeles installes sur Ollama (pour le selecteur de la page). [] si injoignable."""
     try:
@@ -101,7 +136,16 @@ def _handle(payload: dict) -> dict:
     model = payload.get("model") or config.OLLAMA_MODEL
 
     from .backends import OllamaBackend, PerplexityBackend
-    local = OllamaBackend(model=model, host=config.OLLAMA_HOST)
+    if _is_gguf(model):                                 # alternative a Ollama : GGUF in-process (cache)
+        try:
+            local = _get_gguf_backend(model)
+        except Exception as e:
+            hint = (" -- 0xc000001d = llama-cpp-python (wheel) incompatible avec l'AVX de ce CPU : "
+                    "reinstaller (build source / wheel CUDA) ou utiliser Ollama (cf. CLAUDE.md)."
+                    if "c000001d" in str(e).lower() else "")
+            return {"error": f"chargement GGUF echoue ({model}): {e}{hint}"}
+    else:
+        local = OllamaBackend(model=model, host=config.OLLAMA_HOST)
     cloud_be = PerplexityBackend.from_env() if cloud else None
     router = Router(local, cloud_be)
 
@@ -134,7 +178,7 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path in ("/", "/index.html"):
             self._send(200, _PAGE, "text/html; charset=utf-8")
         elif self.path == "/api/models":
-            self._send(200, json.dumps({"models": _ollama_models(),
+            self._send(200, json.dumps({"models": _ollama_models() + _gguf_files(),
                                         "default": config.OLLAMA_MODEL}, ensure_ascii=False))
         else:
             self._send(404, "not found", "text/plain; charset=utf-8")
@@ -198,8 +242,8 @@ _PAGE = """<!doctype html><html lang="fr"><head><meta charset="utf-8">
 </style></head><body>
 <header>
  <b>MultiService IA</b> <span style="color:var(--mut)">test Ollama + memoire</span>
- <label style="color:var(--mut);font-size:13px">modele <input id="model" list="modellist" placeholder="qwen3.6"
-   style="background:#0b0e13;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:3px 6px;width:170px">
+ <label style="color:var(--mut);font-size:13px">modele <input id="model" list="modellist" placeholder="qwen3.6  ou  C:\\...\\model.gguf"
+   style="background:#0b0e13;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:3px 6px;width:260px">
    <datalist id="modellist"></datalist></label>
  <span class="toggles">
    <label><input type="checkbox" id="t-mem" checked> memory-tools (le modele cherche/ecrit)</label>

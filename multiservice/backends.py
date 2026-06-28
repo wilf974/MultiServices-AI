@@ -174,18 +174,37 @@ class EmbeddedGGUF:
         )
 
     def chat(self, messages: List[Message], on_token: OnToken = None,
-             max_tokens: int = 512, temperature: float = 0.7) -> Completion:
-        r = self._llm.create_chat_completion(
-            messages=messages, max_tokens=max_tokens, temperature=temperature
-        )
-        msg = r["choices"][0]["message"]["content"] or ""
-        if on_token:
-            on_token(msg)
+             max_tokens: int = 512, temperature: float = 0.7,
+             tools: Optional[list] = None) -> Completion:
+        kwargs: Dict[str, Any] = {"messages": messages, "max_tokens": max_tokens,
+                                  "temperature": temperature}
+        if tools:                                       # function calling best-effort (depend du modele/format)
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
+        r = self._llm.create_chat_completion(**kwargs)
+        msg = r["choices"][0]["message"]
+        text = msg.get("content") or ""
+        if on_token and text:
+            on_token(text)
         u = r.get("usage", {}) or {}
+        tcs = None                                      # tool_calls OpenAI-style -> {function:{name,arguments(dict)}}
+        raw = msg.get("tool_calls") or None
+        if raw:
+            tcs = []
+            for tc in raw:
+                fn = tc.get("function") or {}
+                a = fn.get("arguments")
+                if isinstance(a, str):                  # llama-cpp serialise les args en chaine JSON
+                    try:
+                        a = json.loads(a)
+                    except Exception:
+                        a = {}
+                tcs.append({"function": {"name": fn.get("name", ""), "arguments": a or {}}})
         return Completion(
-            text=msg, model_id=self.model_id,
+            text=text, model_id=self.model_id,
             input_tokens=int(u.get("prompt_tokens", 0)),
             output_tokens=int(u.get("completion_tokens", 0)),
+            tool_calls=tcs,
         )
 
     def generate(self, composed_prompt: str) -> Completion:

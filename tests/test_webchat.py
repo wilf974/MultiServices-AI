@@ -55,6 +55,12 @@ def test_reponse_locale_expose_activite_memoire(tmp_path):
     assert tc["tool"] == "recall" and tc["arguments"] == {"query": "NIMBUS"} and tc["ok"] is True
 
 
+def test_is_gguf_detection():
+    from multiservice.webchat import _is_gguf
+    assert _is_gguf("C:/models/eve.gguf") and _is_gguf("a.GGUF")
+    assert not _is_gguf("qwen3.6:latest") and not _is_gguf("")
+
+
 def test_reponse_cloud_aucune_activite_memoire(tmp_path):
     jp = _seed(tmp_path / "j.jsonl")
     router = Router(local=LocalToolBackend(), cloud=CloudBackend())
