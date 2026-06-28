@@ -14,6 +14,7 @@ import json
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Dict, List, Optional
+from urllib.request import urlopen
 
 from . import config
 from .chat import build_recall_context, inject_context, record_turn, serve_turn
@@ -79,6 +80,16 @@ def chat_response(router: Router, message: str, history: Optional[List[dict]] = 
 # Serveur HTTP (stdlib, zero dependance), bind 127.0.0.1.
 # --------------------------------------------------------------------------------------------------
 
+def _ollama_models() -> List[str]:
+    """Liste les modeles installes sur Ollama (pour le selecteur de la page). [] si injoignable."""
+    try:
+        with urlopen(config.OLLAMA_HOST.rstrip("/") + "/api/tags", timeout=5) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        return sorted(m.get("name", "") for m in data.get("models", []) if m.get("name"))
+    except Exception:
+        return []
+
+
 def _handle(payload: dict) -> dict:
     message = (payload.get("message") or "").strip()
     if not message:
@@ -122,6 +133,9 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path in ("/", "/index.html"):
             self._send(200, _PAGE, "text/html; charset=utf-8")
+        elif self.path == "/api/models":
+            self._send(200, json.dumps({"models": _ollama_models(),
+                                        "default": config.OLLAMA_MODEL}, ensure_ascii=False))
         else:
             self._send(404, "not found", "text/plain; charset=utf-8")
 
@@ -184,6 +198,7 @@ _PAGE = """<!doctype html><html lang="fr"><head><meta charset="utf-8">
 </style></head><body>
 <header>
  <b>MultiService IA</b> <span style="color:var(--mut)">test Ollama + memoire</span>
+ <label style="color:var(--mut);font-size:13px">modele <select id="model"></select></label>
  <span class="toggles">
    <label><input type="checkbox" id="t-mem" checked> memory-tools (le modele cherche/ecrit)</label>
    <label><input type="checkbox" id="t-recall"> recall-injection (RAG hote)</label>
@@ -202,6 +217,7 @@ _PAGE = """<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <script>
 const sid = crypto.randomUUID();
 document.getElementById('sid').textContent = 'session ' + sid.slice(0,8);
+fetch('/api/models').then(r=>r.json()).then(d=>{const s=document.getElementById('model');(d.models||[]).forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;s.appendChild(o);});if(d.default)s.value=d.default;}).catch(()=>{});
 const msgs = document.getElementById('msgs'), acts = document.getElementById('acts');
 function add(cls, html){const d=document.createElement('div');d.className='m '+cls;d.innerHTML=html;msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;return d;}
 function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
@@ -216,7 +232,7 @@ f.addEventListener('submit', async e=>{
   const wait=add('a','<span class="empty">...</span>');
   try{
     const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({message,session_id:sid,
+      body:JSON.stringify({message,session_id:sid,model:document.getElementById('model').value,
         memory_tools:document.getElementById('t-mem').checked,
         recall:document.getElementById('t-recall').checked,
         cloud:document.getElementById('t-cloud').checked})});
