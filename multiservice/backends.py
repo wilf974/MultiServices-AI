@@ -181,7 +181,14 @@ class EmbeddedGGUF:
         if tools:                                       # function calling best-effort (depend du modele/format)
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
-        r = self._llm.create_chat_completion(**kwargs)
+        try:
+            r = self._llm.create_chat_completion(**kwargs)
+        except Exception:                               # modele/format sans function-calling -> chat simple
+            if "tools" not in kwargs:
+                raise
+            kwargs.pop("tools", None)
+            kwargs.pop("tool_choice", None)
+            r = self._llm.create_chat_completion(**kwargs)
         msg = r["choices"][0]["message"]
         text = msg.get("content") or ""
         if on_token and text:

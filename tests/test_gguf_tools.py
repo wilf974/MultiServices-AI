@@ -34,6 +34,22 @@ def test_gguf_parse_tool_calls():
     assert c.tool_calls[0]["function"]["arguments"] == {"query": "cache"}   # chaine JSON -> dict
 
 
+def test_gguf_tools_non_supportes_degrade_sans_planter():
+    # un GGUF dont le format ne gere pas le function-calling -> on retombe en chat simple, pas de crash.
+    class _FailTools:
+        def create_chat_completion(self, **kw):
+            if "tools" in kw:
+                raise ValueError("model does not support tools")
+            return {"choices": [{"message": {"content": "Reponse simple."}}], "usage": {}}
+
+    be = EmbeddedGGUF.__new__(EmbeddedGGUF)
+    be.model_id = "g"
+    be._llm = _FailTools()
+    c = be.chat([{"role": "user", "content": "x"}],
+                tools=[{"type": "function", "function": {"name": "recall", "parameters": {}}}])
+    assert c.text == "Reponse simple." and not c.tool_calls
+
+
 def test_gguf_reponse_simple_sans_tools():
     be = _mk({"choices": [{"message": {"content": "Bonjour."}}],
               "usage": {"prompt_tokens": 4, "completion_tokens": 3}})
