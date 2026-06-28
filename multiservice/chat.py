@@ -26,6 +26,7 @@ from .journal import append_events, read_events
 from .memory import recall, recall_semantic
 from .policy import is_sensitive
 from .router import events_for_turn
+from .routing import Router
 from .semcache import SemanticCache
 
 Message = Dict[str, str]
@@ -77,11 +78,13 @@ def inject_context(sent, context_block):
 def record_turn(prompt_text: str, completion: Completion, count_source: str,
                 journal_path: str | Path, session_id: str,
                 now: Optional[datetime] = None, served_from: Optional[str] = None,
-                full_input_tokens: Optional[int] = None) -> int:
-    """Journalise un tour deja produit (append-only). Retourne le nb d'evts ecrits."""
+                full_input_tokens: Optional[int] = None,
+                routing: Optional[dict] = None) -> int:
+    """Journalise un tour deja produit (append-only). Retourne le nb d'evts ecrits.
+    `routing` = provenance du routeur (passe-plat) ; record_turn NE decide rien (capture pure)."""
     evs = events_for_turn(prompt_text, completion, count_source,
                           session_id=session_id, now=now, served_from=served_from,
-                          full_input_tokens=full_input_tokens)
+                          full_input_tokens=full_input_tokens, routing=routing)
     return append_events(journal_path, evs)
 
 
@@ -132,8 +135,10 @@ def run_repl(backend: Backend, journal_path: str | Path, system_prompt: str = ""
              keep_turns: int = 6, semcache: Optional[SemanticCache] = None,
              semcache_threshold: float = 0.95, recall_ctx: bool = False,
              recall_k: int = 3, recall_min_score: float = 0.4,
-             recall_embedder=None, recall_store=None) -> None:
+             recall_embedder=None, recall_store=None,
+             cloud_backend: Optional[Backend] = None, cloud_ok: bool = False) -> None:
     session_id = str(uuid.uuid4())
+    router = Router(backend, cloud_backend)          # local par defaut ; cloud ssi permis+non sensible
     messages: List[Message] = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
@@ -178,6 +183,8 @@ def run_repl(backend: Backend, journal_path: str | Path, system_prompt: str = ""
         messages.append({"role": "user", "content": user})
         served_from = None
         full_in = None
+        routing_prov = None                          # provenance de routage du tour (live uniquement)
+        turn_count_source = backend.count_source     # ecrase par le routeur si appel modele live
         journal_events = read_events(journal_path)
         served = cache.get(messages, session_id, journal_events) if cache else None
         sem = None if served is not None else maybe_serve_semantic(
@@ -200,7 +207,9 @@ def run_repl(backend: Backend, journal_path: str | Path, system_prompt: str = ""
                     sent = inject_context(sent, ctx)
                     print("[memoire injectee]")
             try:
-                completion = backend.chat(sent, on_token=lambda t: print(t, end="", flush=True))
+                completion, turn_count_source, routing_prov = router.generate(
+                    user, cloud_ok=cloud_ok, sent=sent,
+                    on_token=lambda t: print(t, end="", flush=True))
             except KeyboardInterrupt:
                 print("\n[generation interrompue] tour ignore, session intacte.\n")
                 messages.pop()
@@ -209,7 +218,7 @@ def run_repl(backend: Backend, journal_path: str | Path, system_prompt: str = ""
                 print(f"\n[erreur backend: {e}]\n   -> tour ignore, rien journalise. Reessaie, /reset, ou augmente --timeout.\n")
                 messages.pop()
                 continue
-            print("\n")
+            print(f"\n[routage -> {routing_prov['routed_to']} ({routing_prov['routing_reason']})]\n")
             if compact and sent is not messages:        # estimer le 'full' (ratio caracteres)
                 full_chars = sum(len(m.get("content", "")) for m in messages)
                 sent_chars = sum(len(m.get("content", "")) for m in sent)
@@ -219,8 +228,8 @@ def run_repl(backend: Backend, journal_path: str | Path, system_prompt: str = ""
                 cache.put(messages, completion, session_id=session_id)
             maybe_store_semantic(semcache, user, completion, session_id)
         messages.append({"role": "assistant", "content": completion.text})
-        record_turn(user, completion, backend.count_source, journal_path, session_id,
-                    served_from=served_from, full_input_tokens=full_in)
+        record_turn(user, completion, turn_count_source, journal_path, session_id,
+                    served_from=served_from, full_input_tokens=full_in, routing=routing_prov)
 
 
 def _build_backend(args: argparse.Namespace) -> Backend:
@@ -266,8 +275,17 @@ def main() -> None:
                    help="memoire vivante : injecte les souvenirs pertinents du journal dans le prompt")
     p.add_argument("--recall-k", type=int, default=3, dest="recall_k")
     p.add_argument("--recall-min-score", type=float, default=0.4, dest="recall_min_score")
+    p.add_argument("--cloud", action="store_true",
+                   help="routage cloud (Perplexity) pour les tours NON sensibles "
+                        "(cle via PPLX_API_KEY ; sensible -> local toujours ; cloud KO -> repli local)")
     args = p.parse_args()
     backend = _build_backend(args)
+    cloud_backend = None
+    cloud_ok = False
+    if args.cloud:                                    # backend cloud optionnel, opt-in explicite
+        from .backends import PerplexityBackend
+        cloud_backend = PerplexityBackend.from_env()
+        cloud_ok = True
     cache = ResultCache(args.cache_path) if args.cache else None
     semcache = None
     if args.semcache:
@@ -284,7 +302,8 @@ def main() -> None:
              semcache=semcache, semcache_threshold=args.semcache_threshold,
              recall_ctx=args.recall_ctx, recall_k=args.recall_k,
              recall_min_score=args.recall_min_score,
-             recall_embedder=recall_embedder, recall_store=recall_store)
+             recall_embedder=recall_embedder, recall_store=recall_store,
+             cloud_backend=cloud_backend, cloud_ok=cloud_ok)
 
 
 if __name__ == "__main__":

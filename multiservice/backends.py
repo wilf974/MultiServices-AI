@@ -14,6 +14,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol, runtime_checkable
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
@@ -24,6 +25,18 @@ class Completion:
     input_tokens: int
     output_tokens: int
     cached_tokens: int = 0
+
+
+class BackendError(RuntimeError):
+    """Erreur structuree d'un backend (cle absente, HTTP, reseau). `kind` est stable et
+    machine-lisible ; `status`/`detail` portent le contexte fournisseur quand il existe."""
+
+    def __init__(self, kind: str, message: str = "", status: Optional[int] = None,
+                 detail: Optional[str] = None) -> None:
+        super().__init__(message or kind)
+        self.kind = kind
+        self.status = status
+        self.detail = detail
 
 
 Message = Dict[str, str]
@@ -154,6 +167,77 @@ class EmbeddedGGUF:
         u = r.get("usage", {}) or {}
         return Completion(
             text=msg, model_id=self.model_id,
+            input_tokens=int(u.get("prompt_tokens", 0)),
+            output_tokens=int(u.get("completion_tokens", 0)),
+        )
+
+    def generate(self, composed_prompt: str) -> Completion:
+        return self.chat([{"role": "user", "content": composed_prompt}])
+
+
+class PerplexityBackend:
+    """Backend CLOUD Perplexity (Sonar), OpenAI-compatible, stdlib `urllib` (zero dependance).
+
+    NON LOCAL : le routeur ne le choisit que pour un tour NON sensible ET cloud explicitement
+    permis (politique 'sensible -> local seul', cf. policy.decide). count_source='provider_usage'
+    (la facture du fournisseur fait foi, D9). Cle via env, JAMAIS dans le repo ; erreurs
+    structurees (BackendError) ; timeout explicite. Pluggable : meme interface Backend que les
+    autres, donc d'autres clouds suivront le meme patron sans toucher au routeur.
+    """
+
+    count_source = "provider_usage"
+
+    DEFAULT_URL = "https://api.perplexity.ai/chat/completions"
+    DEFAULT_MODEL = "sonar"
+
+    def __init__(self, api_key: str = "", model: str = DEFAULT_MODEL,
+                 url: str = DEFAULT_URL, timeout: int = 60) -> None:
+        self.model_id = model
+        self._key = api_key
+        self._url = url
+        self._timeout = timeout
+
+    @classmethod
+    def from_env(cls) -> "PerplexityBackend":
+        """Construit depuis l'environnement : PPLX_API_KEY / PPLX_MODEL / PPLX_API_URL.
+        La cle reste obligatoire a l'appel (verifiee dans chat), pas a la construction."""
+        import os
+        return cls(
+            api_key=os.environ.get("PPLX_API_KEY", ""),
+            model=os.environ.get("PPLX_MODEL", cls.DEFAULT_MODEL),
+            url=os.environ.get("PPLX_API_URL", cls.DEFAULT_URL),
+        )
+
+    def chat(self, messages: List[Message], on_token: OnToken = None) -> Completion:
+        if not self._key:
+            raise BackendError("missing_api_key",
+                               "PPLX_API_KEY requis pour activer PerplexityBackend.")
+        payload: Dict[str, Any] = {"model": self.model_id, "messages": messages}
+        req = Request(
+            self._url, data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json",
+                     "Authorization": f"Bearer {self._key}"}, method="POST",
+        )
+        try:
+            with urlopen(req, timeout=self._timeout) as resp:
+                obj = json.loads(resp.read().decode("utf-8"))
+        except HTTPError as e:
+            body = ""
+            try:
+                body = e.read().decode("utf-8", "replace")
+            except Exception:
+                pass
+            raise BackendError("http_error", f"Perplexity HTTP {e.code}",
+                               status=e.code, detail=body) from e
+        except URLError as e:
+            raise BackendError("network_error",
+                               f"Perplexity injoignable : {e.reason}") from e
+        text = (obj["choices"][0]["message"].get("content") or "")
+        if on_token:
+            on_token(text)
+        u = obj.get("usage", {}) or {}
+        return Completion(
+            text=text, model_id=obj.get("model", self.model_id),
             input_tokens=int(u.get("prompt_tokens", 0)),
             output_tokens=int(u.get("completion_tokens", 0)),
         )
