@@ -38,7 +38,7 @@ def _preview(result: Any, n: int = 500) -> str:
 
 
 def run_with_memory_tools(backend, messages: List[dict], journal_path: str, session_id: str,
-                          embedder=None, store=None, max_steps: int = 5, on_token=None) -> AgentResult:
+                          embedder=None, store=None, max_steps: int = 6, on_token=None) -> AgentResult:
     """Fait tourner la boucle outil jusqu'a une reponse sans tool_call (ou max_steps).
     `backend` doit accepter chat(messages, on_token=, tools=) (ex: OllamaBackend)."""
     specs = build_tool_specs()
@@ -94,6 +94,10 @@ def run_with_memory_tools(backend, messages: List[dict], journal_path: str, sess
             ))
             working.append({"role": "tool", "tool_name": name,
                             "content": json.dumps(result, ensure_ascii=False)})
+    if completion is not None and getattr(completion, "tool_calls", None):
+        # Sortie avec des tool_calls en suspens (max_steps atteint ou garde anti-boucle) : FORCER une
+        # synthese finale SANS outils, pour que l'utilisateur recoive une reponse (pas un tour vide).
+        completion = backend.chat(working, on_token=on_token)
     if tool_events:                                     # audit des recherches/ecritures du modele
         append_events(journal_path, tool_events)
     return AgentResult(completion=completion, tool_events=tool_events, steps=steps)

@@ -88,6 +88,22 @@ def test_appels_identiques_repetes_stoppent_tot(tmp_path):
     assert len(calls) <= 2          # la garde stoppe la repetition (pas 5 appels identiques)
 
 
+def test_max_steps_force_une_reponse_finale(tmp_path):
+    # le modele cherche jusqu'a epuiser max_steps -> on FORCE une synthese finale (sans outils),
+    # sinon l'utilisateur ne recoit aucune reponse (juste des appels d'outils).
+    jp = _seed(tmp_path / "j.jsonl")
+    be = ScriptBackend([
+        Completion("", "qwen3.6", 1, 0, tool_calls=_tc("recall", query="a")),
+        Completion("", "qwen3.6", 1, 0, tool_calls=_tc("recall", query="b")),
+        Completion("", "qwen3.6", 1, 0, tool_calls=_tc("recall", query="c")),
+        Completion("Voici la synthese finale.", "qwen3.6", 2, 5),   # reponse forcee apres max_steps
+    ])
+    res = run_with_memory_tools(be, [{"role": "user", "content": "resume"}], jp, "sess", max_steps=3)
+    assert res.completion.text == "Voici la synthese finale."
+    calls = [e for e in read_events(jp) if e.type == EventType.TOOL_CALL]
+    assert len(calls) == 3
+
+
 def test_outil_inconnu_renvoye_au_modele(tmp_path):
     jp = _seed(tmp_path / "j.jsonl")
     be = ScriptBackend([
