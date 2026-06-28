@@ -207,7 +207,7 @@ def run_repl(backend: Backend, journal_path: str | Path, system_prompt: str = ""
                     sent = inject_context(sent, ctx)
                     print("[memoire injectee]")
             try:
-                completion, turn_count_source, routing_prov = router.generate(
+                completion, turn_count_source, prov = router.generate(
                     user, cloud_ok=cloud_ok, sent=sent,
                     on_token=lambda t: print(t, end="", flush=True))
             except KeyboardInterrupt:
@@ -218,7 +218,13 @@ def run_repl(backend: Backend, journal_path: str | Path, system_prompt: str = ""
                 print(f"\n[erreur backend: {e}]\n   -> tour ignore, rien journalise. Reessaie, /reset, ou augmente --timeout.\n")
                 messages.pop()
                 continue
-            print(f"\n[routage -> {routing_prov['routed_to']} ({routing_prov['routing_reason']})]\n")
+            # Provenance de routage : pertinente seulement si le cloud etait en jeu. En local pur
+            # (ni cloud_ok ni backend cloud), aucun choix de routage -> pas de bruit (event/console).
+            routing_prov = prov if (cloud_ok or cloud_backend is not None) else None
+            if routing_prov:
+                print(f"\n[routage -> {routing_prov['routed_to']} ({routing_prov['routing_reason']})]\n")
+            else:
+                print("\n")
             if compact and sent is not messages:        # estimer le 'full' (ratio caracteres)
                 full_chars = sum(len(m.get("content", "")) for m in messages)
                 sent_chars = sum(len(m.get("content", "")) for m in sent)
