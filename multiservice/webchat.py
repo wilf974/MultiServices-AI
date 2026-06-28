@@ -198,7 +198,9 @@ _PAGE = """<!doctype html><html lang="fr"><head><meta charset="utf-8">
 </style></head><body>
 <header>
  <b>MultiService IA</b> <span style="color:var(--mut)">test Ollama + memoire</span>
- <label style="color:var(--mut);font-size:13px">modele <select id="model"></select></label>
+ <label style="color:var(--mut);font-size:13px">modele <input id="model" list="modellist" placeholder="qwen3.6"
+   style="background:#0b0e13;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:3px 6px;width:170px">
+   <datalist id="modellist"></datalist></label>
  <span class="toggles">
    <label><input type="checkbox" id="t-mem" checked> memory-tools (le modele cherche/ecrit)</label>
    <label><input type="checkbox" id="t-recall"> recall-injection (RAG hote)</label>
@@ -217,7 +219,14 @@ _PAGE = """<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <script>
 const sid = crypto.randomUUID();
 document.getElementById('sid').textContent = 'session ' + sid.slice(0,8);
-fetch('/api/models').then(r=>r.json()).then(d=>{const s=document.getElementById('model');(d.models||[]).forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;s.appendChild(o);});if(d.default)s.value=d.default;}).catch(()=>{});
+const modelInput=document.getElementById('model');
+const savedModel=localStorage.getItem('msia_model');
+fetch('/api/models').then(r=>r.json()).then(d=>{
+  const dl=document.getElementById('modellist');
+  (d.models||[]).forEach(m=>{const o=document.createElement('option');o.value=m;dl.appendChild(o);});
+  modelInput.value = savedModel || d.default || '';
+}).catch(()=>{ modelInput.value = savedModel || ''; });
+modelInput.addEventListener('change', e=>localStorage.setItem('msia_model', e.target.value.trim()));
 const msgs = document.getElementById('msgs'), acts = document.getElementById('acts');
 function add(cls, html){const d=document.createElement('div');d.className='m '+cls;d.innerHTML=html;msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;return d;}
 function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
