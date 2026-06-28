@@ -47,13 +47,13 @@ def run_with_memory_tools(backend, messages: List[dict], journal_path: str, sess
     tool_events: List[AetherEvent] = []
     completion = None
     steps = 0
+    seen_sigs: set = set()                              # signatures (tool, args) deja executees
     for steps in range(1, max_steps + 1):
         completion = backend.chat(working, on_token=on_token, tools=specs)
         calls = getattr(completion, "tool_calls", None)
         if not calls:
             break                                       # reponse finale (le modele a conclu)
-        # rejoue le tour assistant (avec ses tool_calls) pour la suite de la conversation
-        working.append({"role": "assistant", "content": completion.text or "", "tool_calls": calls})
+        parsed = []
         for tc in calls:
             fn = tc.get("function") or {}
             name = fn.get("name", "")
@@ -63,6 +63,16 @@ def run_with_memory_tools(backend, messages: List[dict], journal_path: str, sess
                     args = json.loads(args)
                 except Exception:
                     args = {}
+            parsed.append((name, args))
+        sigs = [(n, json.dumps(a, sort_keys=True, ensure_ascii=False)) for n, a in parsed]
+        # GARDE ANTI-BOUCLE : si le modele ne fait que rejouer des appels deja faits (ex. un modele
+        # faible qui rappelle recall({}) en boucle), on arrete -- aucun progres possible.
+        if sigs and all(s in seen_sigs for s in sigs):
+            break
+        seen_sigs.update(sigs)
+        # rejoue le tour assistant (avec ses tool_calls) pour la suite de la conversation
+        working.append({"role": "assistant", "content": completion.text or "", "tool_calls": calls})
+        for name, args in parsed:
             tool_events.append(AetherEvent(
                 type=EventType.TOOL_CALL, title="tool_call", description=name,
                 source=f"llm:{getattr(backend, 'model_id', '?')}",

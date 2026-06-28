@@ -79,6 +79,15 @@ def test_max_steps_borne_la_boucle(tmp_path):
     assert len(calls) <= 3
 
 
+def test_appels_identiques_repetes_stoppent_tot(tmp_path):
+    # modele faible qui rejoue TOUJOURS le meme appel casse (recall sans query) -> garde anti-boucle.
+    jp = _seed(tmp_path / "j.jsonl")
+    be = ScriptBackend([Completion("", "qwen3.6", 1, 0, tool_calls=_tc("recall"))])  # arguments={}
+    run_with_memory_tools(be, [{"role": "user", "content": "x"}], jp, "sess", max_steps=5)
+    calls = [e for e in read_events(jp) if e.type == EventType.TOOL_CALL]
+    assert len(calls) <= 2          # la garde stoppe la repetition (pas 5 appels identiques)
+
+
 def test_outil_inconnu_renvoye_au_modele(tmp_path):
     jp = _seed(tmp_path / "j.jsonl")
     be = ScriptBackend([
