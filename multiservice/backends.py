@@ -25,6 +25,7 @@ class Completion:
     input_tokens: int
     output_tokens: int
     cached_tokens: int = 0
+    tool_calls: Optional[list] = None   # tool calls emis par le modele (function calling), si presents
 
 
 class BackendError(RuntimeError):
@@ -93,17 +94,33 @@ class OllamaBackend:
         self._think = think  # D13 : raisonnement coupe par defaut
         self._options = options or {}
 
-    def chat(self, messages: List[Message], on_token: OnToken = None) -> Completion:
+    def chat(self, messages: List[Message], on_token: OnToken = None,
+             tools: Optional[list] = None) -> Completion:
+        # Avec tools (function calling) : NON-streaming (Ollama renvoie un seul objet + tool_calls).
         payload: Dict[str, Any] = {
-            "model": self.model_id, "messages": messages, "stream": True,
+            "model": self.model_id, "messages": messages, "stream": tools is None,
             "think": self._think,
         }
+        if tools is not None:
+            payload["tools"] = tools
         if self._options:
             payload["options"] = self._options
         req = Request(
             self._url, data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"}, method="POST",
         )
+        if tools is not None:
+            with urlopen(req, timeout=self._timeout) as resp:
+                obj = json.loads(resp.read().decode("utf-8"))
+            msg = obj.get("message") or {}
+            text = msg.get("content", "") or ""
+            if on_token and text:
+                on_token(text)
+            return Completion(
+                text, obj.get("model", self.model_id),
+                int(obj.get("prompt_eval_count", 0)), int(obj.get("eval_count", 0)),
+                tool_calls=(msg.get("tool_calls") or None),
+            )
         parts: List[str] = []
         model = self.model_id
         pin = pout = 0
