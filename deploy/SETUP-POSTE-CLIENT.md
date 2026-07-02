@@ -69,7 +69,9 @@ Réponse attendue : `201 {"id":...,"source":"project:<NOM>"}` (la source est imp
 
 **Conventions** : `decision`=choix · `correction`=revirement (MÊME `--session` -> péremption C3) · `observation`=fait terrain · `validation`=vérif OK. `--session`=sujet stable. Texte autoportant, ASCII de préférence.
 
-**Codes** : `201` OK · `401` signature/cert · `403` mTLS/IP non allowlistée · `409` rejeu · `422` format.
+**Garde anti-gabarit (01/07/2026)** : un texte de gabarit non rempli (ex. `<FAIT>`, `<le fait, texte reel>` — comme dans les exemples ci-dessus !) est **refusé** : exit 2 côté client, `422 placeholder text` côté serveur. Contournement volontaire : `--force` (voyage dans le corps signé). Pollution observée au journal → `multiservice/hygiene.py`.
+
+**Codes** : `201` OK · `401` signature/cert · `403` mTLS/IP non allowlistée · `409` rejeu · `422` format ou gabarit non rempli.
 
 ---
 

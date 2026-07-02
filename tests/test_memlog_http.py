@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import ssl
 
 import httpx
+import pytest
 
 import multiservice.memlog_http as memlog_http
 from multiservice.memlog_http import build_request
@@ -74,3 +75,24 @@ def test_main_porte_le_cert_via_sslcontext(monkeypatch):
     assert rec["cert"] == ("c.pem", "k.pem"), "load_cert_chain doit charger le cert client"
     assert rec["url"] == "https://mem.example/ingest"
     assert rec["post_kw"]["headers"]["X-Mem-Signature"]
+
+
+def test_main_refuse_le_gabarit_non_rempli(monkeypatch, capsys):
+    """Garde anti-placeholder : refus AVANT le reseau (exit 2), message explicite."""
+    monkeypatch.setenv("MEM_INGEST_URL", "https://mem.example/ingest")
+    monkeypatch.setenv("MEM_HMAC_KEY", KEY)
+    monkeypatch.setenv("MEM_CLIENT_CERT", "c.pem")
+    monkeypatch.setenv("MEM_CLIENT_KEY", "k.pem")
+    monkeypatch.setattr("sys.argv", ["memlog-http", "<le fait, texte reel>", "--kind", "note"])
+    with pytest.raises(SystemExit) as ei:
+        memlog_http.main()
+    assert ei.value.code == 2
+    assert "gabarit" in capsys.readouterr().out
+
+
+def test_build_request_porte_force_seulement_si_demande():
+    """--force voyage DANS le corps signe (le serveur le lit) ; absent par defaut (compat)."""
+    body, _ = build_request("<FAIT>", "note", "s", KEY, force=True)
+    assert json.loads(body)["force"] is True
+    body2, _ = build_request("vrai texte", "note", "s", KEY)
+    assert "force" not in json.loads(body2)

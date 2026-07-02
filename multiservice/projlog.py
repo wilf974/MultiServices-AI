@@ -25,6 +25,7 @@ from typing import Optional
 
 from . import config
 from .events import AetherEvent, EventType
+from .hygiene import looks_like_placeholder
 from .journal import append_events
 from .source_alias import canonical
 
@@ -67,7 +68,12 @@ def main() -> None:
     p.add_argument("--session", default="project", dest="session_id",
                    help="regroupe un fil (sujet/feature) ; une correction y perime les decisions anterieures")
     p.add_argument("--journal", default=config.JOURNAL_PATH)
+    p.add_argument("--force", action="store_true",
+                   help="journalise MEME si le texte ressemble a un gabarit non rempli")
     a = p.parse_args()
+    if not a.force and looks_like_placeholder(a.text):
+        print("[projlog] REFUS : texte de gabarit non rempli (--force pour passer outre)")
+        raise SystemExit(2)
     n = log(a.journal, a.kind, a.text, source=a.source, session_id=a.session_id)
     print(f"[projlog] {a.kind} journalise ({n} evt, session={a.session_id}) -> {a.journal}")
 

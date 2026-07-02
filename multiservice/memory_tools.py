@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from . import memory
 from .events import AetherEvent, EventType
+from .hygiene import looks_like_placeholder
 from .journal import append_events, read_events
 
 # Ecriture du modele : source IMPOSEE (jamais usurpable) + kinds bornes (non-autoritaires).
@@ -64,8 +65,12 @@ def build_tool_specs() -> List[Dict[str, Any]]:
               {"query": {"type": s, "description": "sujet a rechercher"},
                "k": {"type": "integer", "description": "nb max (defaut 10)"}},
               ["query"]),
-        _spec("recent", "Quoi de neuf : decisions/corrections/derniers events sur une fenetre.",
-              {"days": {"type": "integer", "description": "fenetre en jours (defaut 7)"}}),
+        _spec("recent", "Quoi de neuf : decisions/corrections/derniers events sur une fenetre. "
+              "Sortie bornee (limit), compteurs complets.",
+              {"days": {"type": "integer", "description": "fenetre en jours (defaut 7)"},
+               "source": {"type": s, "description": "filtre par source/projet (prefixe, optionnel)"},
+               "limit": {"type": "integer",
+                         "description": "plafond decisions/corrections (defaut 20)"}}),
         _spec("why", "Les evenements d'un tour donne (pourquoi l'agent a vu/dit ca).",
               {"turn_id": {"type": s, "description": "identifiant du tour"}}, ["turn_id"]),
         _spec("replay", "Rejoue une session (digest compact par defaut).",
@@ -75,7 +80,12 @@ def build_tool_specs() -> List[Dict[str, Any]]:
         _spec("brief", "Brief compose sur un SUJET (souvenirs + decisions + revises + sessions).",
               {"query": {"type": s, "description": "sujet"},
                "k": {"type": "integer", "description": "nb max (defaut 5)"}}, ["query"]),
-        _spec("lessons", "Lecons tirees des corrections (C3) + verite courante. Aucun argument.", {}),
+        _spec("lessons", "Lecons tirees des corrections (C3) + verite courante. Sortie bornee "
+              "(k/standing_k), compteurs complets.",
+              {"source": {"type": s, "description": "filtre par source/projet (prefixe, optionnel)"},
+               "k": {"type": "integer", "description": "plafond lecons (defaut 20)"},
+               "standing_k": {"type": "integer",
+                              "description": "plafond verites debout (defaut 20)"}}),
         _spec("sources", "CARTE de toute la memoire : liste TOUS les namespaces/projets (source) avec "
               "le nombre d'entrees. A appeler pour savoir QUOI existe avant de chercher. Aucun argument.", {}),
         _spec("browse", "PARCOURIR la memoire sans mot-cle : entrees filtrees par source (projet) et/ou "
@@ -146,7 +156,9 @@ def run_tool(name: str, args: Dict[str, Any], journal_path: str,
         return memory.recall(events, q, k=k)           # repli lexical propre (pas d'embedder)
 
     if name == "recent":
-        return memory.recent(events, days=_as_int(args.get("days"), 7))
+        return memory.recent(events, days=_as_int(args.get("days"), 7),
+                             source_prefix=(args.get("source") or None),
+                             limit=_as_int(args.get("limit"), 20))
 
     if name == "why":
         t = args.get("turn_id")
@@ -168,12 +180,17 @@ def run_tool(name: str, args: Dict[str, Any], journal_path: str,
         return memory.topic_brief(events, q, k=_as_int(args.get("k"), 5))
 
     if name == "lessons":
-        return memory.lessons_learned(events)
+        return memory.lessons_learned(events,
+                                      source_prefix=(args.get("source") or None),
+                                      k=_as_int(args.get("k"), 20),
+                                      standing_k=_as_int(args.get("standing_k"), 20))
 
     if name == "remember":                             # SEUL outil mutateur (ecriture gardee)
         text = (args.get("text") or "").strip()
         if not text:
             raise ToolError("bad_args", "remember: 'text' requis")
+        if looks_like_placeholder(text):               # anti-gabarit ; PAS de force au modele (C1)
+            raise ToolError("bad_args", "remember: texte de gabarit non rempli (placeholder)")
         kind = (args.get("kind") or "observation").strip().lower()
         if kind in AUTHORITATIVE_KINDS:                # C1 : l'humain tranche, le modele observe
             raise ToolError("forbidden_kind",

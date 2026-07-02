@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from . import projlog
+from .hygiene import looks_like_placeholder
 from .journal import append_events
 
 
@@ -94,6 +95,10 @@ def ingest(payload: Dict[str, Any], cn: str, signature: str, body: bytes,
         return {"status": 422, "error": "invalid kind"}
     if not text or not text.strip():
         return {"status": 422, "error": "empty text"}
+    # Garde anti-gabarit (pollution observee au journal) ; contournement VOLONTAIRE = force (C1).
+    if looks_like_placeholder(text) and not bool(payload.get("force")):
+        return {"status": 422,
+                "error": "placeholder text (gabarit non rempli ; force=true pour outrepasser)"}
     source = client["source"]                       # C2 IMPOSEE (on ignore payload.source)
     session = payload.get("session") or "ingest"
     try:

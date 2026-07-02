@@ -86,6 +86,28 @@ def test_invalid_kind_and_empty_text(tmp_path):
     assert ing.ingest(p2, "bureau", _sign(b2), b2, REG, str(tmp_path / "j"), ns, now=NOW)["status"] == 422
 
 
+def test_placeholder_rejete_422(tmp_path):
+    """Gabarit non rempli (pollution observee au journal) -> 422, rien n'est appende."""
+    jp = tmp_path / "j.jsonl"
+    p = _payload(text="<le fait, texte reel>")
+    body = json.dumps(p).encode()
+    r = ing.ingest(p, "bureau", _sign(body), body, REG, str(jp),
+                   ing.NonceStore(tmp_path / "n"), now=NOW)
+    assert r["status"] == 422 and "placeholder" in r["error"]
+    assert not jp.exists() or read_events(str(jp)) == []
+
+
+def test_placeholder_force_true_passe(tmp_path):
+    """Contournement VOLONTAIRE (C1) : force=true dans le corps signe -> 201."""
+    jp = tmp_path / "j.jsonl"
+    p = _payload(text="<le fait, texte reel>", force=True)
+    body = json.dumps(p).encode()
+    r = ing.ingest(p, "bureau", _sign(body), body, REG, str(jp),
+                   ing.NonceStore(tmp_path / "n"), now=NOW)
+    assert r["status"] == 201
+    assert len(read_events(str(jp))) == 1
+
+
 def test_nonce_store_prune(tmp_path):
     ns = ing.NonceStore(tmp_path / "n.jsonl")
     ns.add("old", (NOW - timedelta(hours=1)).isoformat())

@@ -114,6 +114,15 @@ def test_remember_kind_autoritaire_refuse(tmp_path):
         assert ei.value.kind == "forbidden_kind"
 
 
+def test_remember_refuse_le_gabarit_non_rempli(tmp_path):
+    """Anti-placeholder : le modele ne peut PAS journaliser un gabarit (et pas de --force pour lui)."""
+    jp = _seed(tmp_path / "j.jsonl")
+    with pytest.raises(ToolError) as ei:
+        run_tool("remember", {"text": "<le fait, texte reel>", "kind": "note"}, jp)
+    assert ei.value.kind == "bad_args"
+    assert not any(e.source == "project:ollama" for e in _read(jp))   # rien d'appende
+
+
 def test_remember_text_requis(tmp_path):
     jp = _seed(tmp_path / "j.jsonl")
     with pytest.raises(ToolError) as ei:
