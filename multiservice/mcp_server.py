@@ -78,10 +78,14 @@ def build_server(journal_path: str = None):
         return memory.topic_brief(read_events(jp), query, k=k)
 
     @srv.tool()
-    def recent(days: int = 7) -> dict:
+    def recent(days: int = 7, source: str = "", limit: int = 20) -> dict:
         """« Quoi de neuf » : evenements recents (fenetre `days`) = decisions + corrections +
-        derniers evenements textuels. Point d'entree d'une reprise de travail. Lecture seule."""
-        return memory.recent(read_events(jp), days=days)
+        derniers evenements textuels. Point d'entree d'une reprise de travail. Lecture seule.
+        `source` filtre par projet (ex 'project:MultiService-IA', graphies reconciliees) ;
+        `limit` plafonne decisions/corrections (defaut 20, sortie bornee). Les compteurs
+        `counts` restent complets et `truncated` signale la coupe."""
+        return memory.recent(read_events(jp), days=days,
+                             source_prefix=(source or None), limit=limit)
 
     @srv.tool()
     def usage() -> dict:
@@ -97,10 +101,24 @@ def build_server(journal_path: str = None):
         return memory.reasoning_chain(read_events(jp), session_id)
 
     @srv.tool()
-    def lessons() -> dict:
+    def lessons(source: str = "", k: int = 20, standing_k: int = 20) -> dict:
         """Lecons tirees des corrections (C3) : ce qui a ete revise/abandonne + la verite courante
-        (`still_standing`). Lecture seule. Vide tant qu'aucune correction n'est journalisee."""
-        return memory.lessons_learned(read_events(jp))
+        (`still_standing`). Lecture seule. Vide tant qu'aucune correction n'est journalisee.
+        `source` filtre par projet ; `k` plafonne les lecons, `standing_k` les verites debout
+        (defaut 20/20, sortie bornee). `counts` reste complet, `truncated` signale la coupe."""
+        return memory.lessons_learned(read_events(jp), source_prefix=(source or None),
+                                      k=k, standing_k=standing_k)
+
+    @srv.tool()
+    def curation(source: str = "", k: int = 20, older_than_days: int = 30) -> dict:
+        """Rapport de CURATION de la memoire (lecture seule, Phase 1) : doublons exacts et
+        proches, gabarits non remplis encore valides, decisions anciennes non revisitees,
+        contradictions candidates — plus des PROPOSITIONS en attente de validation humaine
+        (AUCUNE ecriture, cloture jamais suppression). `source` filtre par projet ; sortie
+        bornee (k), compteurs complets, `truncated` signale la coupe."""
+        from . import curator
+        return curator.curation_report(read_events(jp), source_prefix=(source or None),
+                                       k=k, older_than_days=older_than_days)
 
     @srv.tool()
     def index_status() -> dict:

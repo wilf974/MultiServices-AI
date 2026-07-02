@@ -12,6 +12,7 @@ from multiservice.mcp_server import build_server, build_http_server
 READ_TOOLS = {
     "recall", "why", "recall_semantic", "replay", "replay_event", "forecast",
     "brief", "recent", "usage", "reasoning", "lessons", "index_status",
+    "curation",   # rapport de curation Phase 1 (02/07/2026) - lecture seule, comme le reste
 }
 
 

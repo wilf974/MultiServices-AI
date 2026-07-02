@@ -44,11 +44,19 @@ def test_briefing_today_lecture_seule():
     assert [e.id for e in evs] == before                 # rien mute
 
 
-def test_mcp_server_import_paresseux():
+def test_mcp_server_import_paresseux(monkeypatch):
+    """DETERMINISTE quel que soit l'environnement : on MASQUE le SDK `mcp` (sys.modules=None)
+    au lieu de supposer qu'il n'est pas installe (le test cassait des que `mcp` etait present
+    sur le poste, observe le 02/07/2026). L'import doit rester paresseux : le module
+    s'importe sans SDK, l'erreur n'arrive qu'a build_server()."""
+    import sys
     import pytest
     from multiservice.mcp_server import build_server
+    monkeypatch.setitem(sys.modules, "mcp", None)
+    monkeypatch.setitem(sys.modules, "mcp.server", None)
+    monkeypatch.setitem(sys.modules, "mcp.server.fastmcp", None)
     with pytest.raises((ImportError, ModuleNotFoundError)):
-        build_server()                                   # 'mcp' non installe -> erreur claire
+        build_server()                                   # SDK masque -> erreur claire
 
 
 def test_recall_multimots_classe_par_pertinence():
