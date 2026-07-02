@@ -6,8 +6,11 @@ recall depuis le journal, aucun cache. Streaming + REPL resilient : une erreur b
 
 Usage : python -m multiservice.chat --ollama
         python -m multiservice.chat --ollama --timeout 900
+        python -m multiservice.chat --ollama --ollama-model qwen3.6:latest
         python -m multiservice.chat --stub
-Commandes : /quit  /reset  /journal
+Commandes : /quit  /reset  /journal  /correct  /note  /model
+Le MODELE est un choix, jamais fige : env MULTISERVICE_OLLAMA_MODEL, --ollama-model au
+lancement, /model <nom> en cours de session (la capture C2 porte le modele de chaque tour).
 """
 from __future__ import annotations
 
@@ -203,6 +206,20 @@ def run_repl(backend: Backend, journal_path: str | Path, system_prompt: str = ""
             continue
         if user == "/journal":
             print(f"[journal] {journal_path}\n")
+            continue
+        if user.startswith("/model"):
+            name = user[len("/model"):].strip()
+            if not name:
+                print(f"[modele] courant : {backend.model_id} ; /model <nom> pour changer\n")
+                continue
+            if not isinstance(backend, OllamaBackend):
+                print("[modele] changement en vol : backend Ollama seulement "
+                      "(gguf/stub -> relancer avec --model)\n")
+                continue
+            backend = backend.with_model(name)
+            router.local = backend               # le routeur sert desormais ce modele en local
+            print(f"[modele] {backend.model_id} "
+                  "(chaque tour journalise porte le modele qui l'a servi, C2)\n")
             continue
         if user.startswith("/correct"):
             note = user[len("/correct"):].strip()

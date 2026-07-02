@@ -94,6 +94,19 @@ class OllamaBackend:
         self._think = think  # D13 : raisonnement coupe par defaut
         self._options = options or {}
 
+    def with_model(self, model: str) -> "OllamaBackend":
+        """Nouveau backend sur `model`, MEME config (host/timeout/think/options). PUR.
+        Le modele est un CHOIX de l'utilisateur (env MULTISERVICE_OLLAMA_MODEL,
+        --ollama-model, /model en session, champ webchat) - JAMAIS fige. L'original
+        n'est pas mute : les tours deja captures gardent leur model_id (C2)."""
+        nb = OllamaBackend.__new__(OllamaBackend)
+        nb.model_id = model
+        nb._url = self._url
+        nb._timeout = self._timeout
+        nb._think = self._think
+        nb._options = dict(self._options)
+        return nb
+
     def chat(self, messages: List[Message], on_token: OnToken = None,
              tools: Optional[list] = None) -> Completion:
         # Avec tools (function calling) : NON-streaming (Ollama renvoie un seul objet + tool_calls).
