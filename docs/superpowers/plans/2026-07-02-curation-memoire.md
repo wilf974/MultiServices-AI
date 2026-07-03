@@ -18,11 +18,15 @@
 - [ ] Premier rapport sur le journal RÉEL + revue humaine → recalibrer les seuils (BITS).
 - [ ] Brancher `curation` dans `memory_tools.py` (agent local) et l'API web (`GET /curation`).
 
-## Phase 2 — Écriture supervisée (après critères §7 de la spec)
-- [ ] File d'attente des propositions (approve/reject humain).
-- [ ] Exécution des approuvées via ingest (kind=correction, session de l'original → supersede C3).
-- [ ] Chaque action de curation journalisée dans la mémoire elle-même (auditable).
+## Phase 2 — Écriture supervisée — ✅ SOCLE LIVRÉ (02/07 soir, 315 tests)
+- [x] **Clôture ciblée** `data.closes=[ids]` (session neutre `curation-closures`) — le design
+      « session de l'original » était fautif (aurait périmé l'original) : corrigé avant de coder.
+- [x] File = le journal : `command`/`command_reject` portés par chaque proposition ;
+      approuvé → doublon disparaît des rapports ; rejeté (`data.rejects`) → plus de pending.
+- [x] Canal `memlog-http --closes/--rejects` (signés) + validation 422 côté ingest.
+- [x] Chaque action de curation est un événement journalisé (auditable, bi-temporel).
 - [ ] Narrateur LLM local (prompts §4 de la spec, sortie JSON validée).
+- [ ] Mise en service : critères §7 (précision ≥ 90 % sur ≥ 20 revues) avant d'approuver en lot.
 
 ## Phase 3 — Autonomie partielle
 - [ ] Automatiser UNIQUEMENT `close_duplicate` strict (texte identique + même session).

@@ -66,10 +66,22 @@ Chaque section : bornée à `k` (compteurs complets, `truncated`), chaque item p
   "proposed_at": "ISO8601"
 }
 ```
-File d'attente Phase 2 : les propositions approuvées sont exécutées via l'ingest (mTLS) comme
-événements de curation (`kind=correction`, session de l'original → supersede C3 naturel), chaque
-action étant elle-même journalisée. Phase 3 : seule `close_duplicate` STRICTE (texte identique,
-même session) devient automatisable, le reste reste supervisé.
+**File d'attente Phase 2 — LIVRÉE (02/07 soir), sémantique corrigée.** Le premier design
+(« correction dans la session de l'original ») était FAUTIF : le supersede session+temps aurait
+périmé aussi l'original à garder. Livré à la place : **clôture CIBLÉE** —
+
+- Un événement `kind=correction` portant `data.closes=[ids]`, posté dans la **session neutre
+  `curation-closures`**, clôt PRÉCISÉMENT ces ids (index `_closes_index`, honoré par `recall`,
+  `recall_semantic`, `lessons` et les détecteurs du curateur). Bi-temporel : un `as_of`
+  antérieur à la clôture voit encore le doublon.
+- **Le journal EST la file** (pas de 2ᵉ vérité) : approuver = coller la commande `command`
+  portée par la proposition (`memlog-http ... --closes id1,id2`) ; rejeter = `command_reject`
+  (`--rejects`, la proposition ne revient plus en pending, le signalement reste).
+- Canal : `memlog-http --closes/--rejects` (voyagent SIGNÉS dans le corps) ; serveur ingest :
+  422 si liste invalide ou si `closes` sans `kind=correction`.
+
+Phase 3 : seule `close_duplicate` STRICTE (texte identique, même session) devient
+automatisable, le reste reste supervisé.
 
 ## 4. Prompts système de l'IA de curation (Phase ≥ 2, LLM local)
 

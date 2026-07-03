@@ -74,6 +74,38 @@ def _superseded_by(corr_idx: Dict[Any, list], session_id: Any,
     return [cid for (cvf, cid) in corr_idx.get(session_id, []) if cvf and cvf > vf]
 
 
+def _closes_index(events: List[AetherEvent],
+                  as_of: Optional[datetime] = None) -> Dict[str, List[str]]:
+    """Cloture CIBLEE (curation Phase 2) : {event_id vise: [ids des corrections qui le closent]}.
+    Une CORRECTION valide a as_of portant `data.closes=[ids]` clot PRECISEMENT ces evenements
+    — et rien d'autre : elle vit dans une session neutre (ex 'curation-closures') pour ne pas
+    declencher le supersede session+temps sur la session d'origine (l'original a garder y
+    survivrait pas sinon). PUR, LECTURE SEULE."""
+    asof = _aware(as_of) or datetime.now(timezone.utc)
+    idx: Dict[str, List[str]] = {}
+    for e in events:
+        if e.type != EventType.CORRECTION:
+            continue
+        closes = e.data.get("closes")
+        if not isinstance(closes, list) or not closes:
+            continue
+        vf = _aware(e.valid_from)
+        if vf and vf > asof:
+            continue                                 # pas encore valide (bi-temporel)
+        vt = _aware(e.valid_to)
+        if vt and vt < asof:
+            continue                                 # la cloture elle-meme est close (C3)
+        for target in closes:
+            if isinstance(target, str) and target:
+                idx.setdefault(target, []).append(e.id)
+    return idx
+
+
+def _closed_by(closes_idx: Dict[str, List[str]], event_id: str) -> List[str]:
+    """Ids des corrections qui CLOSENT precisement cet evenement (liste vide sinon). PUR."""
+    return list(closes_idx.get(event_id, []))
+
+
 def _snippet(text: str, query: str, width: int = 200) -> str:
     """Extrait centre sur le 1er terme de la requete trouve, avec ellipses. PUR, econome.
     Renvoie le texte entier s'il est deja court. Evite le dump : la sortie reste legere."""
@@ -126,6 +158,7 @@ def recall(events: List[AetherEvent], query: str, as_of: Optional[datetime] = No
     et STRUCTURE : has_code (bloc ```), has_table (tableau markdown). Teste sur le texte complet."""
     asof = _aware(as_of) or datetime.now(timezone.utc)
     corr_idx = _corrections_index(events)            # C3 : fraicheur (correction posterieure ?)
+    closes_idx = _closes_index(events, as_of=asof)   # clotures CIBLEES (curation)
     hits = []
     for e in events:
         if type_ and e.type.value != type_:
@@ -146,7 +179,8 @@ def recall(events: List[AetherEvent], query: str, as_of: Optional[datetime] = No
         sc = _score(query, txt)
         if sc <= 0:
             continue                                 # aucun mot de la requete present
-        corrected = _superseded_by(corr_idx, e.data.get("session_id"), vf)
+        corrected = (_superseded_by(corr_idx, e.data.get("session_id"), vf)
+                     + _closed_by(closes_idx, e.id))
         hits.append({
             "id": e.id, "type": e.type.value, "source": e.source,
             "valid_from": vf.isoformat() if vf else None,
@@ -446,10 +480,12 @@ def lessons_learned(events: List[AetherEvent], as_of: Optional[datetime] = None,
         vt = _aware(e.valid_to)
         return not (vt and vt < asof)
 
+    closes_idx = _closes_index(events, as_of=asof)   # clotures CIBLEES (curation)
     corrections = sorted(
         [e for e in events
          if e.type == EventType.CORRECTION and valid(e)
-         and _source_matches(e.source, source_prefix)],
+         and _source_matches(e.source, source_prefix)
+         and not _closed_by(closes_idx, e.id)],      # une correction close (doublon) sort
         key=lambda e: _aware(e.valid_from) or floor)
 
     lessons = []
@@ -487,6 +523,7 @@ def lessons_learned(events: List[AetherEvent], as_of: Optional[datetime] = None,
         if e.type == EventType.DECISION and valid(e)
         and _source_matches(e.source, source_prefix)
         and not _superseded_by(corr_idx, e.data.get("session_id"), _aware(e.valid_from))
+        and not _closed_by(closes_idx, e.id)         # une decision close ne tient plus debout
     ]
     standing_all.sort(key=lambda e: _aware(e.valid_from) or floor, reverse=True)
     still_standing = [
@@ -610,6 +647,7 @@ def recall_semantic(events: List[AetherEvent], query: str, embedder, store,
     from .semantic import cosine
     asof = _aware(as_of) or datetime.now(timezone.utc)
     corr_idx = _corrections_index(events)            # C3 : fraicheur (correction posterieure ?)
+    closes_idx = _closes_index(events, as_of=asof)   # clotures CIBLEES (curation)
     vecs = store.load()
     cand = []
     for e in events:
@@ -636,7 +674,8 @@ def recall_semantic(events: List[AetherEvent], query: str, embedder, store,
         fused = round(sw * sem_n + (1.0 - sw) * lex, 4)
         if fused < min_fused:                            # plancher : on etouffe le bruit
             continue
-        corrected = _superseded_by(corr_idx, e.data.get("session_id"), _aware(e.valid_from))
+        corrected = (_superseded_by(corr_idx, e.data.get("session_id"), _aware(e.valid_from))
+                     + _closed_by(closes_idx, e.id))
         h = {
             "id": e.id, "type": e.type.value, "source": e.source,
             "valid_from": (_aware(e.valid_from).isoformat() if e.valid_from else None),

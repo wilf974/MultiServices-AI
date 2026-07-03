@@ -96,3 +96,28 @@ def test_build_request_porte_force_seulement_si_demande():
     assert json.loads(body)["force"] is True
     body2, _ = build_request("vrai texte", "note", "s", KEY)
     assert "force" not in json.loads(body2)
+
+
+def test_build_request_porte_data_closes_signe():
+    """Curation Phase 2 : closes/rejects voyagent SIGNES dans le corps (pas de hors-bande)."""
+    body, sig = build_request("cloture curation approuvee", "correction",
+                              "curation-closures", KEY, data={"closes": ["id-1", "id-2"]})
+    payload = json.loads(body)
+    assert payload["data"]["closes"] == ["id-1", "id-2"]
+    assert hmac.new(KEY.encode(), body, hashlib.sha256).hexdigest() == sig
+    body2, _ = build_request("texte simple", "note", "s", KEY)
+    assert "data" not in json.loads(body2)             # absent par defaut (compat)
+
+
+def test_main_refuse_closes_sans_kind_correction(monkeypatch, capsys):
+    """--closes est une cloture C3 : refus AVANT reseau si le kind n'est pas correction."""
+    monkeypatch.setenv("MEM_INGEST_URL", "https://mem.example/ingest")
+    monkeypatch.setenv("MEM_HMAC_KEY", KEY)
+    monkeypatch.setenv("MEM_CLIENT_CERT", "c.pem")
+    monkeypatch.setenv("MEM_CLIENT_KEY", "k.pem")
+    monkeypatch.setattr("sys.argv", ["memlog-http", "cloture de doublons",
+                                     "--kind", "note", "--closes", "aa,bb"])
+    with pytest.raises(SystemExit) as ei:
+        memlog_http.main()
+    assert ei.value.code == 2
+    assert "kind correction" in capsys.readouterr().out

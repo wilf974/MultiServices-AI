@@ -16,9 +16,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .events import AetherEvent, EventType
 from .hygiene import looks_like_placeholder
-from .memory import (_aware, _corrections_index, _source_matches,
-                     _superseded_by, _text)
+from .memory import (_aware, _closed_by, _closes_index, _corrections_index,
+                     _source_matches, _superseded_by, _text)
 from .skills import _norm, _tokens
+
+# Session NEUTRE des evenements de cloture ciblee : le supersede session+temps n'y perime
+# que d'autres clotures (jamais la session d'origine, ou l'original a garder survivrait pas).
+CLOSURE_SESSION = "curation-closures"
 
 # Types « faits rediges » soumis a curation (jamais les tours bruts de chat).
 CURATED_TYPES = {EventType.DECISION, EventType.CORRECTION, EventType.NOTE,
@@ -36,7 +40,10 @@ def _valid_at(e: AetherEvent, asof: datetime) -> bool:
 
 def _facts(events: List[AetherEvent], asof: datetime,
            source_prefix: Optional[str]) -> List[AetherEvent]:
-    """Les faits rediges VALIDES (types soumis a curation, texte non vide, filtre source)."""
+    """Les faits rediges VALIDES (types soumis a curation, texte non vide, filtre source).
+    Les faits CLOS de facon ciblee (data.closes, Phase 2) sortent du perimetre : une cloture
+    approuvee fait disparaitre le doublon des rapports suivants (boucle fermee)."""
+    closes_idx = _closes_index(events, as_of=asof)
     out = []
     for e in events:
         if e.type not in CURATED_TYPES:
@@ -45,9 +52,25 @@ def _facts(events: List[AetherEvent], asof: datetime,
             continue
         if not _valid_at(e, asof):
             continue
+        if _closed_by(closes_idx, e.id):
+            continue
         if not _text(e).strip():
             continue
         out.append(e)
+    return out
+
+
+def _rejected_ids(events: List[AetherEvent], asof: datetime) -> set:
+    """Ids vises par un REJET humain (`data.rejects=[ids]` sur un evenement valide) : les
+    propositions qui les ciblent ne reviennent plus en pending (le journal EST la file)."""
+    out: set = set()
+    for e in events:
+        rejects = e.data.get("rejects")
+        if not isinstance(rejects, list) or not rejects:
+            continue
+        if not _valid_at(e, asof):
+            continue
+        out.update(x for x in rejects if isinstance(x, str) and x)
     return out
 
 
@@ -216,20 +239,40 @@ def curation_report(events: List[AetherEvent], now: Optional[datetime] = None,
     stale = find_stale_candidates(events, now=asof, older_than_days=older_than_days,
                                   source_prefix=source_prefix)
     contra = find_contradiction_candidates(events, as_of=asof, source_prefix=source_prefix)
+    # File de propositions : le JOURNAL est la file (pas de 2e verite). Une cloture approuvee
+    # fait sortir le doublon des detecteurs (via _facts) ; un rejet (data.rejects) retire la
+    # proposition du pending. Chaque proposition PORTE sa commande d'approbation (C1 : coller
+    # la commande = approuver ; session NEUTRE, cloture ciblee, jamais de suppression).
+    rejected = _rejected_ids(events, asof)
     proposals = []
+    n_rejected = 0
     for g in exact:
         ids = [ev["id"] for ev in g["events"]]
-        proposals.append(make_proposal(
+        if rejected & set(ids[1:]):                # rejet humain journalise : plus en pending
+            n_rejected += 1
+            continue
+        p = make_proposal(
             "close_duplicate", targets=ids[1:], keep=ids[0],
             rationale=(f"{g['count']} evenements {g['type']} au texte identique ; "
                        "garder l'original, clore les copies (C3)."),
             evidence={"detector": "exact_duplicates", "score": 1.0,
                       "sessions": sorted({ev["session_id"] for ev in g["events"]
                                           if ev["session_id"]})},
-            now=asof))
+            now=asof)
+        p["command"] = (
+            f'memlog-http "Curation approuvee : cloture de {len(ids) - 1} copie(s) '
+            f'{g["type"]} (doublon exact), original conserve {ids[0]}" '
+            f"--kind correction --session {CLOSURE_SESSION} "
+            f"--closes {','.join(ids[1:])}")
+        p["command_reject"] = (
+            f'memlog-http "Proposition de curation REJETEE (doublon volontaire ou a garder)" '
+            f"--kind note --session curation-reviews "
+            f"--rejects {','.join(ids[1:])}")
+        proposals.append(p)
     counts = {"exact_duplicates": len(exact), "near_duplicates": len(near),
               "placeholder_facts": len(placeholders), "stale_candidates": len(stale),
-              "contradiction_candidates": len(contra), "proposals": len(proposals)}
+              "contradiction_candidates": len(contra), "proposals": len(proposals),
+              "proposals_rejected": n_rejected}
     return {
         "as_of": asof.isoformat(),
         "params": {"source": source_prefix, "k": k, "older_than_days": older_than_days,

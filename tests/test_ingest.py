@@ -108,6 +108,35 @@ def test_placeholder_force_true_passe(tmp_path):
     assert len(read_events(str(jp))) == 1
 
 
+def test_closes_valide_passe_et_atterrit_dans_l_event(tmp_path):
+    """Curation Phase 2 : une cloture ciblee signee (kind=correction) -> 201, data.closes pose."""
+    jp = tmp_path / "j.jsonl"
+    p = _payload(kind="correction", text="curation approuvee : cloture de doublons",
+                 data={"closes": ["id-a", "id-b"]})
+    body = json.dumps(p).encode()
+    r = ing.ingest(p, "bureau", _sign(body), body, REG, str(jp),
+                   ing.NonceStore(tmp_path / "n"), now=NOW)
+    assert r["status"] == 201
+    evs = read_events(str(jp))
+    assert evs[0].data.get("closes") == ["id-a", "id-b"]
+
+
+def test_closes_invalide_ou_mauvais_kind_422(tmp_path):
+    ns = ing.NonceStore(tmp_path / "n")
+    # pas une liste d'ids -> 422
+    p1 = _payload(kind="correction", text="cloture cassee",
+                  data={"closes": "id-a"}, nonce="nA")
+    b1 = json.dumps(p1).encode()
+    r1 = ing.ingest(p1, "bureau", _sign(b1), b1, REG, str(tmp_path / "j"), ns, now=NOW)
+    assert r1["status"] == 422 and "closes" in r1["error"]
+    # closes sur un kind non-correction -> 422 (sinon cloture inerte cote lecture)
+    p2 = _payload(kind="note", text="cloture via note interdite",
+                  data={"closes": ["id-a"]}, nonce="nB")
+    b2 = json.dumps(p2).encode()
+    r2 = ing.ingest(p2, "bureau", _sign(b2), b2, REG, str(tmp_path / "j"), ns, now=NOW)
+    assert r2["status"] == 422 and "correction" in r2["error"]
+
+
 def test_nonce_store_prune(tmp_path):
     ns = ing.NonceStore(tmp_path / "n.jsonl")
     ns.add("old", (NOW - timedelta(hours=1)).isoformat())
