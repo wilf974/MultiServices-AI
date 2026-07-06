@@ -192,6 +192,8 @@ vers un client compatible). Tous les résultats portent leur provenance et un dr
 |---|---|
 | `recall(query, …)` | Souvenirs pertinents. Filtres : type, source, et **structure** (`has_code`, `has_table`). Chaque résultat porte `superseded` / `corrected_by` (révisé depuis ?). |
 | `recall_semantic(query, …)` | Recall hybride : couverture lexicale **+** embedding sémantique local, fusionnés avec un plancher anti-bruit. Le mode `explain` détaille les sous-scores. |
+| `sources()` | **Carte de toute la mémoire** : chaque namespace/source (`project:*`, `llm:*`, …) avec son nombre d'événements — pour voir *ce qui existe* avant de chercher. |
+| `browse(source, type, k)` | **Énumérer sans requête** : entrées filtrées par source/type, plus récentes d'abord — pour explorer un projet entier là où le recall lexical ne matcherait pas. |
 | `why(turn_id)` | Les événements d'un tour — « pourquoi l'agent a vu/dit ça ». |
 | `replay(session_id, digest=True)` | Rejoue une session : résumé compact (1 ligne/tour) par défaut, ou dump complet. |
 | `replay_event(event_id, depth)` | La **chaîne causale** d'un événement : tour focus + tours précédents + clôture/corrections C3. |
@@ -212,6 +214,69 @@ lecture seule) :
 - `/note <texte>` — enregistre une note proposée par l'agent (`source=agent:claude`), **validée par
   l'humain qui lance la commande** (C1). La mémoire peut ainsi *compounder* à partir du raisonnement
   de l'agent, tandis que la surface d'interrogation reste strictement en lecture seule.
+
+---
+
+## Mémoire agentique — le modèle cherche (et se souvient) lui-même
+
+Au-delà de la surface lecture seule, un modèle **local** (via le function-calling d'Ollama) peut
+piloter la mémoire **lui-même** : il décide quand il lui faut un souvenir, appelle `recall` /
+`sources` / `browse` / `recent` / …, lit les résultats et répond — sans injection côté hôte. Chaque
+appel d'outil est journalisé (`tool_call` / `tool_result`), donc auditable : on voit *ce que le
+modèle a cherché*.
+
+Il peut aussi **écrire**, via un unique outil gardé — `remember(text, kind)` :
+
+- **source forcée** à `project:ollama` (le modèle ne peut usurper une autre source),
+- **append-only / bi-temporel** — il consigne, ne supprime jamais,
+- **non-autoritatif** — kinds limités à `observation` / `note` ; les kinds autoritatifs
+  (`decision` / `validation` / `correction`) restent **validés par l'humain (C1)**. Les écritures du
+  modèle ne sont jamais promues en skill ni servies par le cache décisionnel,
+- **dédupliqué**.
+
+Le modèle obtient une vraie surface lecture+écriture **sans** casser *« la mémoire observe, l'humain
+tranche »* : ses écritures sont isolées par source, non destructives, non-autoritatives. À lancer
+dans la boucle de chat avec `--memory-tools`, ou depuis la console web locale (ci-dessous).
+
+> **Souveraineté des outils.** Les outils mémoire ne sont exposés **que pour un tour local**. Si un
+> tour part vers un fournisseur cloud, aucun outil mémoire n'est exposé et rien de sensible n'est
+> embarqué dans le contexte d'outils — la mémoire ne quitte jamais la machine.
+
+---
+
+## Routage multi-fournisseurs (optionnel — local d'abord)
+
+Par défaut, tout est local. **En option**, un backend cloud peut être activé derrière la même
+interface `Backend`, gouverné par une politique hybride **« sensible → local seul »** :
+
+- **local par défaut** ; un tour part au cloud **seulement si** tu l'autorises explicitement **et**
+  qu'un détecteur déterministe ne trouve rien de sensible (secrets, PII, intention d'accès non
+  autorisé). *Dans le doute : local.*
+- si le backend cloud échoue, il **bascule en local** — un tour n'est jamais perdu,
+- chaque tour routé porte une **provenance explicite** dans le journal (`routed_to`,
+  `routing_reason`, `sensitivity_reasons`) — on peut toujours demander *pourquoi* un tour est parti
+  local ou cloud.
+
+Un `PerplexityBackend` (compatible OpenAI) est livré comme premier fournisseur cloud ; l'interface
+est enfichable. Activer avec `--cloud` (clé via `PPLX_API_KEY`). **Opt-in — le défaut souverain est
+100 % local.**
+
+---
+
+## Console de dev locale (web)
+
+Une petite page web **strictement locale** (stdlib Python, bind `127.0.0.1` — jamais exposée) pour
+essayer le modèle + la mémoire dans un navigateur : chatter avec un modèle local, voir **les appels
+d'outils mémoire du modèle en direct** (recall / remember + résultats), et basculer `memory-tools` /
+injection-recall / cloud.
+
+```bash
+python -m multiservice.webchat      # http://127.0.0.1:8765
+```
+
+Le champ modèle accepte un nom Ollama **ou un chemin vers un `.gguf`** — les modèles GGUF se
+chargent **en process** (`EmbeddedGGUF`, llama-cpp) comme alternative pleinement locale à Ollama.
+Tout reste sur ta machine.
 
 ---
 
@@ -327,6 +392,13 @@ claude mcp add --transport http multiservice-memory https://mem.example.com/mcp 
 Une recette prête à l'emploi (Docker avec le journal monté en **lecture seule** + nginx) est dans
 [`deploy/`](deploy/).
 
+> **Le sémantique est local ; un central sans GPU reste lexical.** Les embeddings (`bge-m3`) sont
+> calculés sur la machine qui a le GPU — ton poste. Un serveur central sans GPU sert la surface
+> lecture seule en recall **lexical** (toujours sourcé, daté, conscient du C3) ; le recall
+> *sémantique* hybride est une capacité locale. C'est voulu : le chemin souverain est local, et le
+> serveur central est une **option** pour atteindre un journal partagé — pas une exigence, et ce
+> n'est pas là que tourne le modèle.
+
 **Écriture distante authentifiée (ingest).** Les postes distants peuvent aussi *écrire* dans le
 journal central via **mTLS + HMAC** (anti-rejeu nonce + horodatage) ; la source est **imposée côté
 serveur** depuis le CN du certificat client — impossible de l'usurper. Commande client : `memlog-http`.
@@ -345,15 +417,23 @@ uniquement, rate-limité. Recette dans [`deploy/`](deploy/) (`Dockerfile.webapi`
 
 ```bash
 python -m multiservice.chat        # boucle de chat (capture + journalise chaque tour)
+python -m multiservice.chat --memory-tools --cloud   # mémoire agentique + routage cloud optionnel
+python -m multiservice.webchat     # console web locale (Ollama/GGUF + activité mémoire en direct)
 python -m multiservice.inspect     # observabilité d'usage (lecture seule)
 python -m multiservice.economy     # comptabilité de tokens : ré-envoi de préfixe, économie fenêtrage
 python -m multiservice.index       # (ré)indexation incrémentale des embeddings locaux
+python -m multiservice.maintenance # réindexation incrémentale, planifiable (garde l'index frais)
 python -m multiservice.preheat     # pré-chauffage : coût projeté du prochain tour
 python -m multiservice.mcp_server  # serveur MCP de mémoire (lecture seule)
 python -m multiservice.projlog "<décision>" --kind decision --session <sujet>   # journaliser une décision projet
 ```
 
-Dans la boucle de chat : `/correct <note>`, `/note <texte>`, `/reset`, `/quit`.
+Dans la boucle de chat : `/correct <note>`, `/note <texte>`, `/model <nom|chemin.gguf>`, `/reset`, `/quit`.
+
+> **Garder l'index frais, automatiquement.** `multiservice.maintenance` ne réindexe que ce qui a
+> changé et est prévu pour être planifié (tâche planifiée Windows / cron), pour que le recall hybride
+> reste frais sans étape manuelle. Les embeddings sémantiques sont une capacité **locale (GPU)** —
+> voir la note sous *Accès distant* sur pourquoi un central sans GPU reste lexical.
 
 > **Dogfooding.** `projlog` inscrit les décisions/corrections du projet dans le journal, pour que
 > `recall`/`brief`/`recent` ancrent le travail futur dans le raisonnement passé — la mémoire se
@@ -364,9 +444,14 @@ Dans la boucle de chat : `/correct <note>`, `/note <texte>`, `/reset`, `/quit`.
 
 ## État du projet
 
-Moteur fonctionnel avec une surface de mémoire complète en lecture seule, cache exact + sémantique,
-fenêtrage de contexte, ébauche de skills émergentes, sauvegarde append-only avec manifestes SHA-256,
-et recall hybride local. **Couvert par une suite pytest croissante (actuellement verte).** Chaque
+Moteur fonctionnel avec une surface de mémoire complète en lecture seule, **mémoire agentique** (le
+modèle cherche et écrit son propre namespace `project:ollama`, gardé), **routage multi-fournisseurs
+local d'abord** (cloud Perplexity optionnel derrière une politique « sensible → local »), une
+**console web locale** (Ollama + GGUF), cache exact + sémantique, fenêtrage de contexte, ébauche de
+skills émergentes, sauvegarde append-only avec manifestes SHA-256, recall hybride local, et
+**réindexation planifiable** pour rester frais. Tout tourne **localement par défaut** ; le serveur
+central hébergé (HTTP lecture + ingest mTLS + API REST web) est une **option opt-in** pour partager
+un journal entre machines. **Couvert par une suite pytest croissante (actuellement verte).** Chaque
 fonctionnalité laisse un test de régression permanent ; tout problème révélé par l'usage réel
 devient un test.
 
@@ -374,9 +459,12 @@ devient un test.
 
 ## Feuille de route
 
-- **Routage multi-fournisseurs** — backends cloud optionnels derrière la même interface, gouvernés
-  par la politique « sensible → local seul » ; exploiter le prompt-caching cloud là où le modèle
-  local ne le peut pas.
+- ✅ **Routage multi-fournisseurs** — livré : backend cloud optionnel (Perplexity) derrière la même
+  interface, gouverné par la politique « sensible → local seul », avec provenance de routage explicite.
+- ✅ **Mémoire agentique** — livrée : le modèle local pilote lui-même les outils mémoire et peut écrire
+  dans un namespace gardé, non-autoritatif `project:ollama` ; les outils mémoire restent local-only.
+- ✅ **Console web locale** — livrée : `multiservice.webchat`, Ollama/GGUF + activité mémoire en direct.
+- ✅ **Réindexation planifiable** — livrée : `multiservice.maintenance`, incrémentale, garde le recall frais.
 - ✅ **Une seconde surface (hébergée) en lecture seule** — livrée : serveur streamable-HTTP, voir [`deploy/`](deploy/).
 - ✅ **Écriture distante authentifiée (ingest)** — livrée : mTLS + HMAC + anti-rejeu, client `memlog-http`.
 - ✅ **API REST web pour les LLM web** — livrée : FastAPI publique authentifiée par token

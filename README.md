@@ -188,6 +188,8 @@ an MCP-capable client). All results carry provenance and a freshness flag.
 |---|---|
 | `recall(query, …)` | Relevant memories. Filters: type, source, and **structure** (`has_code`, `has_table`). Each hit carries `superseded` / `corrected_by` (was it revised later?). |
 | `recall_semantic(query, …)` | Hybrid recall: lexical coverage **+** local semantic embedding, fused and floored to suppress noise. `explain` mode exposes the sub-scores. |
+| `sources()` | **Map of the whole memory**: every namespace/source (`project:*`, `llm:*`, …) with its event count — to see *what exists* before searching. |
+| `browse(source, type, k)` | **Enumerate without a query**: entries filtered by source/type, most recent first — to explore a whole project where lexical recall wouldn't match. |
 | `why(turn_id)` | The events of a single turn — "why the agent saw/said this." |
 | `replay(session_id, digest=True)` | Replays a session: a compact one-line-per-turn digest by default, or the full dump. |
 | `replay_event(event_id, depth)` | The **causal chain** of an event: focus turn + preceding turns + C3 closure/corrections. |
@@ -206,6 +208,65 @@ Two human-gated write paths live in the chat loop (not in the read-only surface)
 - `/note <text>` — records an agent-proposed note (`source=agent:claude`), **validated by the human
   who runs the command** (C1). This lets the memory *compound* from the agent's own reasoning,
   while the query surface stays strictly read-only.
+
+---
+
+## Agentic memory — the model searches (and remembers) itself
+
+Beyond the read-only surface, a **local** model (via Ollama function-calling) can drive the memory
+**itself**: it decides when it needs a memory, calls `recall` / `sources` / `browse` / `recent` / …,
+reads the results and answers — no host-side injection. Every tool call is journaled (`tool_call` /
+`tool_result`), so you can audit *what the model searched for*.
+
+It can also **write**, through one guarded tool — `remember(text, kind)`:
+
+- **source is forced** to `project:ollama` (the model can't spoof another source),
+- **append-only / bi-temporal** — it records, never deletes,
+- **non-authoritative** — kinds limited to `observation` / `note`; authoritative kinds
+  (`decision` / `validation` / `correction`) stay **human-gated (C1)**. Model writes are never
+  auto-promoted to skills nor served by the decisional cache,
+- **deduplicated**.
+
+The model gets a real read+write surface **without** breaking *"the memory observes, the human
+decides"*: its writes are source-isolated, non-destructive and non-authoritative. Run it in the chat
+loop with `--memory-tools`, or from the local web console (below).
+
+> **Tool sovereignty.** Memory tools are exposed **only for a local turn**. If a turn is routed to a
+> cloud provider, no memory tool is exposed and nothing sensitive is embedded in the tool context —
+> the memory never leaves the machine.
+
+---
+
+## Multi-provider routing (optional — local-first)
+
+By default everything is local. **Optionally**, a cloud backend can be enabled behind the same
+`Backend` interface, governed by a hybrid **"sensitive → local only"** policy:
+
+- **local by default**; a turn goes to the cloud **only if** you explicitly allow it **and** a
+  deterministic detector finds nothing sensitive (secrets, PII, unauthorized-access intent).
+  *When in doubt: local.*
+- if the cloud backend fails, it **falls back to local** — a turn is never lost,
+- every routed turn carries **explicit provenance** in the journal (`routed_to`, `routing_reason`,
+  `sensitivity_reasons`) — you can always ask *why* a turn went local or cloud.
+
+A `PerplexityBackend` (OpenAI-compatible) ships as the first cloud provider; the interface is
+pluggable. Enable with `--cloud` (key via `PPLX_API_KEY`). **Opt-in — the sovereign default is 100%
+local.**
+
+---
+
+## Local dev console (web)
+
+A tiny **local-only** web page (Python stdlib, binds `127.0.0.1` — never exposed) to try the model +
+memory in a browser: chat with a local model, watch the **model's memory tool calls live**
+(recall / remember + results), and toggle `memory-tools` / recall-injection / cloud.
+
+```bash
+python -m multiservice.webchat      # http://127.0.0.1:8765
+```
+
+The model field accepts an Ollama name **or a path to a `.gguf`** — GGUF models load **in-process**
+(`EmbeddedGGUF`, llama-cpp) as a fully-local alternative to Ollama. Everything stays on your machine.
 
 ---
 
@@ -317,6 +378,12 @@ claude mcp add --transport http multiservice-memory https://mem.example.com/mcp 
 
 A ready-to-use recipe (Docker with the journal mounted **read-only** + nginx) is in [`deploy/`](deploy/).
 
+> **Semantic is local; a GPU-less central stays lexical.** Embeddings (`bge-m3`) are computed on the
+> machine that has the GPU — your workstation. A central server without a GPU serves the read-only
+> surface with **lexical** recall (still sourced, dated, C3-aware); hybrid *semantic* recall is a
+> local capability. This is by design: the sovereign path is local, and the central server is an
+> **option** for reaching one shared journal — not a requirement, and not where the model runs.
+
 **Authenticated remote write (ingest).** Remote machines can also *write* to the central journal over
 **mTLS + HMAC** (nonce + timestamp anti-replay); the source is imposed server-side from the client
 certificate's CN — a client can never spoof it. Client command: `memlog-http`. Recipe in
@@ -334,15 +401,23 @@ in [`deploy/`](deploy/) (`Dockerfile.webapi`) and [`deploy/SETUP-POSTE-CLIENT.md
 
 ```bash
 python -m multiservice.chat        # chat loop (captures + journals every turn)
+python -m multiservice.chat --memory-tools --cloud   # agentic memory + optional cloud routing
+python -m multiservice.webchat     # local-only web console (Ollama/GGUF + live memory activity)
 python -m multiservice.inspect     # usage observability (read-only)
 python -m multiservice.economy     # token accounting: prefix re-send, windowing savings
 python -m multiservice.index       # incremental local embedding (re)index
+python -m multiservice.maintenance # incremental reindex, schedulable (keeps the index fresh)
 python -m multiservice.preheat     # pre-heating: projected cost of the next turn
 python -m multiservice.mcp_server  # read-only MCP memory server
 python -m multiservice.projlog "<decision>" --kind decision --session <topic>   # log a project decision
 ```
 
-In the chat loop: `/correct <note>`, `/note <text>`, `/reset`, `/quit`.
+In the chat loop: `/correct <note>`, `/note <text>`, `/model <name|path.gguf>`, `/reset`, `/quit`.
+
+> **Keeping the index fresh, automatically.** `multiservice.maintenance` reindexes only what changed
+> and is meant to be scheduled (a Windows scheduled task / cron), so hybrid recall stays fresh with
+> no manual step. Semantic embeddings are a **local (GPU)** capability — see the note under
+> *Remote access* on why a GPU-less central server stays lexical.
 
 > **Shared memory across projects.** Run `pip install -e .` to make the `projlog` command available
 > everywhere on the machine; any project can then feed the same local journal with a namespaced
@@ -358,17 +433,26 @@ In the chat loop: `/correct <note>`, `/note <text>`, `/reset`, `/quit`.
 
 ## Project status
 
-Working engine with a full read-only memory surface, exact + semantic caching, context windowing,
-emergent-skill scaffolding, append-only backup with SHA-256 manifests, and local hybrid recall.
-**Covered by a growing pytest suite (currently green).** Each feature ships with a permanent
-regression test; every issue surfaced by real usage becomes a test.
+Working engine with a full read-only memory surface, **agentic memory** (the model searches and
+writes its own `project:ollama` namespace, guarded), **local-first multi-provider routing** (optional
+Perplexity cloud behind a "sensitive → local" policy), a **local web console** (Ollama + GGUF), exact
++ semantic caching, context windowing, emergent-skill scaffolding, append-only backup with SHA-256
+manifests, local hybrid recall, and **schedulable reindexing** to keep it fresh. Everything runs
+**locally by default**; the hosted central server (HTTP read + mTLS ingest + web REST API) is an
+**opt-in option** for sharing one journal across machines. **Covered by a growing pytest suite
+(currently green).** Each feature ships with a permanent regression test; every issue surfaced by
+real usage becomes a test.
 
 ---
 
 ## Roadmap
 
-- **Multi-provider routing** — optional cloud backends behind the same interface, governed by the
-  "sensitive → local only" policy; exploit cloud prompt-caching where the local model can't.
+- ✅ **Multi-provider routing** — shipped: optional cloud backend (Perplexity) behind the same
+  interface, governed by the "sensitive → local only" policy, with explicit routing provenance.
+- ✅ **Agentic memory** — shipped: the local model drives the memory tools itself and can write to a
+  guarded, non-authoritative `project:ollama` namespace; memory tools stay local-only.
+- ✅ **Local web console** — shipped: `multiservice.webchat`, Ollama/GGUF + live memory activity.
+- ✅ **Schedulable reindexing** — shipped: `multiservice.maintenance`, incremental, keeps recall fresh.
 - ✅ **A second (hosted) read-only surface** — shipped: streamable-HTTP server, see [`deploy/`](deploy/).
 - ✅ **Authenticated remote write (ingest)** — shipped: mTLS + HMAC + anti-replay, `memlog-http` client.
 - ✅ **Web REST API for web LLMs** — shipped: public, token-authenticated FastAPI (recall/remember/recent
