@@ -61,7 +61,8 @@ class OllamaEmbedder:
         self._timeout = timeout
 
     def embed(self, texts: Sequence[str]) -> List[List[float]]:
-        payload = {"model": self.model, "input": list(texts)}
+        # Tronque a 6000 car : llama-server (ctx 4096) mouline puis rejette au-dela.
+        payload = {"model": self.model, "input": [t[:6000] for t in texts]}
         req = Request(self._url, data=json.dumps(payload).encode("utf-8"),
                       headers={"Content-Type": "application/json"}, method="POST")
         with urlopen(req, timeout=self._timeout) as resp:
@@ -107,7 +108,7 @@ def _is_valid_vec(vec) -> bool:
 
 
 def build_index(id_text_pairs: List[tuple], embedder: Embedder, store: EmbeddingStore,
-                batch: int = 32) -> int:
+                batch: int = 4) -> int:
     """Embed les (id, texte) PAS ENCORE dans le store. Retourne le nb ajoute. Incremental.
     RESILIENT : si un batch echoue (ex. 500 NaN d'Ollama), repli item par item ; tout
     embedding invalide (NaN/erreur) est saute (jamais stocke)."""
