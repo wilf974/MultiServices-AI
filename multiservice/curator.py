@@ -286,3 +286,63 @@ def curation_report(events: List[AetherEvent], now: Optional[datetime] = None,
         "contradiction_candidates": contra[:kk],
         "proposals": proposals[:kk],
     }
+
+
+def report_needs_attention(report: Dict[str, Any]) -> bool:
+    """Action NETTE disponible ? Doublons exacts (proposals prets) ou gabarits non remplis.
+    Les quasi-doublons / contradictions / stale restent ADVISORY (souvent faux positifs) :
+    presents dans le rapport, mais ne declenchent PAS d'alerte (anti-bruit)."""
+    c = report.get("counts", {})
+    return bool(c.get("proposals", 0) or c.get("placeholder_facts", 0))
+
+
+def format_report_markdown(report: Dict[str, Any]) -> str:
+    """Rend le rapport de curation en markdown lisible (pour un rapport planifie).
+    PUR : dict -> str. Met en avant les CLOTURES pretes (coller = approuver, C1) ; les
+    sections advisory (quasi-doublons, contradictions, stale) sont en revue humaine."""
+    c = report.get("counts", {})
+    L = [f"# Curation - {report.get('as_of', '')}", ""]
+    if report_needs_attention(report):
+        L.append("**Action requise** : clotures pretes ci-dessous (coller la commande = approuver).")
+    else:
+        L.append("Rien d'actionnable (doublons exacts et gabarits a 0). Le reste est advisory.")
+    L += ["", "## Compteurs"]
+    for k in ("exact_duplicates", "near_duplicates", "placeholder_facts", "stale_candidates",
+              "contradiction_candidates", "proposals", "proposals_rejected"):
+        L.append(f"- {k} : {c.get(k, 0)}")
+
+    props = report.get("proposals", [])
+    if props:
+        L += ["", "## Doublons exacts - clotures proposees (coller pour approuver, C1)"]
+        for p in props:
+            L.append(f"- {p.get('rationale', '')}")
+            if p.get("command"):
+                L += ["  ```", f"  {p['command']}", "  ```"]
+
+    ph = report.get("placeholder_facts", [])
+    if ph:
+        L += ["", "## Gabarits non remplis (candidats a clore)"]
+        for x in ph:
+            L.append(f"- `{(x.get('id') or '')[:8]}` {x.get('source', '')} : {(x.get('text') or '')[:70]}")
+
+    near = report.get("near_duplicates", [])
+    if near:
+        L += ["", "## Quasi-doublons (revue humaine - souvent faux positifs)"]
+        for x in near:
+            txts = " <> ".join((e.get("text") or "")[:40] for e in x.get("events", []))
+            L.append(f"- sim={x.get('similarity')} :: {txts}")
+
+    contra = report.get("contradiction_candidates", [])
+    if contra:
+        L += ["", "## Contradictions meme session (revue humaine)"]
+        for x in contra:
+            txts = " <> ".join((e.get("text") or "")[:40] for e in x.get("events", []))
+            L.append(f"- overlap={x.get('overlap')} sess={x.get('session_id')} :: {txts}")
+
+    stale = report.get("stale_candidates", [])
+    if stale:
+        L += ["", "## Decisions anciennes non corrigees (revue)"]
+        for x in stale:
+            L.append(f"- {(x.get('text') or '')[:60]} (age {x.get('age_days')}j, {x.get('source', '')})")
+
+    return "\n".join(L) + "\n"

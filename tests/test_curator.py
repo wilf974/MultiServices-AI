@@ -145,3 +145,51 @@ def test_curation_est_pure():
     snap = copy.deepcopy([e.model_dump() for e in evs])
     curation_report(evs, now=NOW)
     assert [e.model_dump() for e in evs] == snap       # AUCUNE mutation (lecture seule)
+
+
+# --- Rapport planifie (lecture seule) : verdict d'attention + rendu markdown ---
+
+def _dup_report():
+    evs = [_ev(EventType.DECISION, "meme decision exacte", NOW - timedelta(days=1), "s"),
+           _ev(EventType.DECISION, "meme decision exacte", NOW - timedelta(hours=1), "s")]
+    return curation_report(evs, now=NOW)
+
+
+def test_report_needs_attention_vrai_si_action_nette():
+    """Action NETTE = doublon exact (proposal prete) ou gabarit non rempli."""
+    from multiservice.curator import report_needs_attention
+    assert report_needs_attention(_dup_report()) is True
+    gab = curation_report([_ev(EventType.DECISION, "<le fait, texte reel>",
+                               NOW - timedelta(days=1), "s")], now=NOW)
+    assert report_needs_attention(gab) is True
+
+
+def test_report_needs_attention_faux_si_advisory_ou_propre():
+    """Les quasi-doublons / contradictions sont ADVISORY (souvent faux positifs) : pas d'alerte."""
+    from multiservice.curator import report_needs_attention
+    near = curation_report(
+        [_ev(EventType.NOTE, "reindex incremental garde index frais sans etape manuelle tache", NOW - timedelta(days=1), "s"),
+         _ev(EventType.NOTE, "reindex incremental garde index frais sans etape manuelle tache horaire", NOW - timedelta(days=1), "s")],
+        now=NOW)
+    assert near["counts"]["near_duplicates"] >= 1
+    assert report_needs_attention(near) is False
+    clean = curation_report([_ev(EventType.DECISION, "adopter apache-2.0 pour la licence",
+                                 NOW - timedelta(days=2), "s")], now=NOW)
+    assert report_needs_attention(clean) is False
+
+
+def test_format_report_markdown_expose_la_commande_pour_un_doublon():
+    from multiservice.curator import format_report_markdown
+    md = format_report_markdown(_dup_report())
+    assert isinstance(md, str)
+    assert "memlog-http" in md and "--closes" in md      # commande prete a coller
+    assert "doublons exacts" in md.lower()
+
+
+def test_format_report_markdown_propre_sans_action():
+    from multiservice.curator import format_report_markdown
+    clean = curation_report([_ev(EventType.DECISION, "adopter apache-2.0 pour la licence",
+                                 NOW - timedelta(days=2), "s")], now=NOW)
+    md = format_report_markdown(clean)
+    assert "--closes" not in md                          # aucune action a proposer
+    assert "rien" in md.lower()
