@@ -489,6 +489,13 @@ real usage becomes a test.
 - ✅ **Web REST API for web LLMs** — shipped: public, token-authenticated FastAPI (recall/remember/recent
   + OpenAPI), Custom GPT-ready. See [`deploy/`](deploy/).
 
+### On the roadmap
+
+- **At-rest encryption** of the local journal.
+- **Scaling** to very large, long-lived journals — indexed / paginated storage (optional graph back-end).
+- **Multi-node hardening** — per-client certificate revocation and rate-limiting.
+- **Richer self-curation** — LLM-comparator calibration and automated per-project synthesis briefs.
+
 ---
 
 ## Design lineage

@@ -503,6 +503,13 @@ devient un test.
 - ✅ **API REST web pour les LLM web** — livrée : FastAPI publique authentifiée par token
   (recall/remember/recent + OpenAPI), prête pour les Custom GPT. Voir [`deploy/`](deploy/).
 
+### À venir
+
+- **Chiffrement au repos** du journal local.
+- **Passage à l'échelle** pour de très gros journaux au long cours — stockage indexé / paginé (back-end graphe optionnel).
+- **Durcissement multi-nœuds** — révocation de certificat par client et rate-limiting.
+- **Auto-curation enrichie** — calibrage du comparateur LLM et briefs de synthèse par projet automatiques.
+
 ---
 
 ## Filiation de conception
