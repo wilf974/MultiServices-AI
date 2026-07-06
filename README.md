@@ -322,9 +322,13 @@ how many turns were served from memory, and how many input tokens were actually 
 
 - Everything runs **on your machine**. The journal lives in a local append-only file.
 - Inference and embeddings go through a **local Ollama** instance — no hosted API.
-- A routing policy keeps **sensitive content local by construction**: anything flagged as a
-  secret/credential or an unauthorized-access intent never leaves the machine — and is never served
-  from cache. (When in doubt: local.)
+- A routing policy keeps **sensitive content off hosted providers**: anything flagged as a
+  secret/credential or an unauthorized-access intent is never routed to a cloud inference/embedding
+  API, and is never served from cache. (When in doubt: local.)
+- **Sovereignty vs. replication.** The claim above is about *inference routing*. The **optional**
+  central server replicates the journal to a host **you** control (opt-in, union-by-id merge) — not a
+  third party; it does **not** filter on sensitivity, but the write path **refuses secret values**, so
+  credentials never enter the journal to begin with.
 - **This repository ships no data.** Your journal is yours and stays on your disk.
 
 ---

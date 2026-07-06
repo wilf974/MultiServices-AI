@@ -335,9 +335,13 @@ Le point clé : l'économie n'est pas *promise* — elle est **mesurée**, en le
 
 - Tout tourne **sur ta machine**. Le journal vit dans un fichier local append-only.
 - Inférence et embeddings passent par une instance **Ollama locale** — aucune API hébergée.
-- Une politique de routage garde le **contenu sensible local par construction** : tout ce qui est
-  marqué comme secret/identifiant ou intention d'accès non autorisé ne quitte jamais la machine — et
-  n'est jamais servi par le cache. (Dans le doute : local.)
+- Une politique de routage garde le **contenu sensible hors des fournisseurs hébergés** : tout ce qui
+  est marqué comme secret/identifiant ou intention d'accès non autorisé n'est jamais routé vers une
+  API d'inférence/embedding cloud, et n'est jamais servi par le cache. (Dans le doute : local.)
+- **Souveraineté vs réplication.** La phrase ci-dessus concerne le *routage d'inférence*. Le serveur
+  central **optionnel** réplique le journal vers un hôte que **tu** contrôles (opt-in, merge
+  union-par-id) — pas un tiers ; il ne **filtre pas** sur la sensibilité, mais le chemin d'écriture
+  **refuse les valeurs de secret**, donc les credentials n'entrent jamais dans le journal.
 - **Ce dépôt n'embarque aucune donnée.** Ton journal est à toi et reste sur ton disque.
 
 ---
