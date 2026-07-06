@@ -200,6 +200,7 @@ an MCP-capable client). All results carry provenance and a freshness flag.
 | `lessons()` | **Lessons learned** from C3 corrections: what was revised/abandoned + the truths that still stand. Empty until a correction is logged. |
 | `curation(source, …)` | **Health report** (read-only): exact/near duplicates, unfilled templates, stale decisions, contradiction candidates — each with cited evidence and ready closure proposals (`pending_human`). |
 | `project_review(project, …)` | **Composed project review** (read-only): reconstructs a project's state from memory alone — valid vs corrected decisions (with the *why*), refuted / standing hypotheses, validations, lessons. Bounded, bi-temporal. |
+| `health()` | **Substrate health** (read-only): availability, event count, latest event, distinct sources — the entry point when resuming (`health → recent → recall`). |
 | `index_status()` | Freshness of the semantic index (`eligible` / `indexed` / `fresh`). Tells you when semantic recall is partial. |
 | `usage()` | **Reuse instrumentation**: how many turns were served from memory (cache, no model call) and input tokens saved. Measures, doesn't predict. |
 | resource `briefing/today` | Daily usage briefing (tokens, compaction savings, by model). |
