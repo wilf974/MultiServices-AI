@@ -198,6 +198,7 @@ an MCP-capable client). All results carry provenance and a freshness flag.
 | `recent(days)` | **"What's new"**: recent decisions, corrections and latest events — the entry point when resuming work. |
 | `reasoning(session_id)` | **Reasoning chain** of a session: hypothesis → observation → decision → correction → validation, ordered, with **present/missing stages** (e.g. a decision with no validation). |
 | `lessons()` | **Lessons learned** from C3 corrections: what was revised/abandoned + the truths that still stand. Empty until a correction is logged. |
+| `curation(source, …)` | **Health report** (read-only): exact/near duplicates, unfilled templates, stale decisions, contradiction candidates — each with cited evidence and ready closure proposals (`pending_human`). |
 | `index_status()` | Freshness of the semantic index (`eligible` / `indexed` / `fresh`). Tells you when semantic recall is partial. |
 | `usage()` | **Reuse instrumentation**: how many turns were served from memory (cache, no model call) and input tokens saved. Measures, doesn't predict. |
 | resource `briefing/today` | Daily usage briefing (tokens, compaction savings, by model). |
@@ -267,6 +268,29 @@ python -m multiservice.webchat      # http://127.0.0.1:8765
 
 The model field accepts an Ollama name **or a path to a `.gguf`** — GGUF models load **in-process**
 (`EmbeddedGGUF`, llama-cpp) as a fully-local alternative to Ollama. Everything stays on your machine.
+
+---
+
+## The memory curates itself
+
+Over months the journal accumulates duplicates, reworded re-logs and stale facts. MultiService IA
+keeps it clean with a **curation** layer that stays constitutional — it **observes and proposes; the
+human decides**. Nothing is auto-deleted; a "fix" is a **C3 closure, never a deletion**.
+
+- **Deterministic detectors** (`curation()` tool / `multiservice.curation_report`) — read-only: exact
+  duplicates, near-duplicates, unfilled templates, stale decisions, contradiction candidates, each
+  citing its evidence. A **scheduled daily report** stays *quiet unless something is actionable*.
+- **Prevention at the source** — the remote-write path (`ingest`) refuses **unfilled templates** and
+  **exact live duplicates** (same source + kind + text), so that class of pollution can't re-enter
+  (`--force` bypasses — human only, C1).
+- **A local-LLM comparator** (`multiservice.curation_llm`) — a **local** model (Ollama, never the
+  cloud) judges the noisy near-duplicate / contradiction candidates: it **de-noises** false positives
+  and proposes **consolidations** (keep the richest existing fact, close the variant). It **proposes,
+  never writes** — every proposal is `pending_human` with a ready closure command.
+
+Approving one is a **C3 closure** (`memlog-http … --closes`): the variant is closed, never deleted;
+the canonical stays the current truth. The loop: **detect → judge (local LLM) → prevent → monitor →
+the human approves.**
 
 ---
 
@@ -407,6 +431,8 @@ python -m multiservice.inspect     # usage observability (read-only)
 python -m multiservice.economy     # token accounting: prefix re-send, windowing savings
 python -m multiservice.index       # incremental local embedding (re)index
 python -m multiservice.maintenance # incremental reindex, schedulable (keeps the index fresh)
+python -m multiservice.curation_report  # daily curation health report (deterministic, read-only)
+python -m multiservice.curation_llm     # local-LLM review: de-noise + consolidation proposals
 python -m multiservice.preheat     # pre-heating: projected cost of the next turn
 python -m multiservice.mcp_server  # read-only MCP memory server
 python -m multiservice.projlog "<decision>" --kind decision --session <topic>   # log a project decision
@@ -437,7 +463,9 @@ Working engine with a full read-only memory surface, **agentic memory** (the mod
 writes its own `project:ollama` namespace, guarded), **local-first multi-provider routing** (optional
 Perplexity cloud behind a "sensitive → local" policy), a **local web console** (Ollama + GGUF), exact
 + semantic caching, context windowing, emergent-skill scaffolding, append-only backup with SHA-256
-manifests, local hybrid recall, and **schedulable reindexing** to keep it fresh. Everything runs
+manifests, local hybrid recall, **schedulable reindexing**, and a **self-curating** layer
+(deterministic detectors + scheduled report, ingest-time dedup/template guards, and a local-LLM
+comparator that de-noises and proposes consolidations — all human-gated, C3). Everything runs
 **locally by default**; the hosted central server (HTTP read + mTLS ingest + web REST API) is an
 **opt-in option** for sharing one journal across machines. **Covered by a growing pytest suite
 (currently green).** Each feature ships with a permanent regression test; every issue surfaced by
@@ -453,6 +481,9 @@ real usage becomes a test.
   guarded, non-authoritative `project:ollama` namespace; memory tools stay local-only.
 - ✅ **Local web console** — shipped: `multiservice.webchat`, Ollama/GGUF + live memory activity.
 - ✅ **Schedulable reindexing** — shipped: `multiservice.maintenance`, incremental, keeps recall fresh.
+- ✅ **Self-curating memory** — shipped: deterministic detectors + scheduled report, ingest guards
+  (exact-dedup + unfilled-template), and a local-LLM comparator (de-noise + consolidation proposals),
+  all human-gated (C3 closure, never deletion).
 - ✅ **A second (hosted) read-only surface** — shipped: streamable-HTTP server, see [`deploy/`](deploy/).
 - ✅ **Authenticated remote write (ingest)** — shipped: mTLS + HMAC + anti-replay, `memlog-http` client.
 - ✅ **Web REST API for web LLMs** — shipped: public, token-authenticated FastAPI (recall/remember/recent
