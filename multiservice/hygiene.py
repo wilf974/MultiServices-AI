@@ -18,6 +18,11 @@ import unicodedata
 # Un segment <...> court, sans saut de ligne (un vrai gabarit tient sur sa ligne).
 _SEGMENT_RE = re.compile(r"<([^<>\n]{1,80})>")
 
+# En-deca de cette longueur, un texte a segment de gabarit EST le gabarit (commande courte
+# collee sans remplir). Au-dela, c'est un doc reel : gabarit seulement si les <...> DOMINENT.
+_SHORT_LEN = 80
+_DOMINANCE = 0.5
+
 # Vocabulaire de gabarit (compare sans accents ni casse). Liste courte et explicite :
 # ne l'elargir que sur de la pollution reellement observee, jamais a l'aveugle.
 PLACEHOLDER_WORDS = (
@@ -35,12 +40,17 @@ def _fold(s: str) -> str:
 
 def looks_like_placeholder(text: str) -> bool:
     """Vrai si `text` est vide ou ressemble a un gabarit NON REMPLI. PUR, etroit.
-    Rejette : un segment <...> dont le contenu (sans accents) contient un mot de gabarit.
-    Laisse passer : <think>, <div>, comparaisons 10 < 20, et tout texte reellement redige."""
-    if not (text or "").strip():
+    Rejette : un segment <...> a mot de gabarit QUI DOMINE le texte (court, ou >= 50 %).
+    Laisse passer : <think>, <div>, 10 < 20, tout texte redige, ET un vrai doc qui
+    DOCUMENTE des exemples <...> noyes (faux positif observe : un RUNBOOK)."""
+    s = (text or "").strip()
+    if not s:
         return True
-    for m in _SEGMENT_RE.finditer(text):
-        inner = _fold(m.group(1))
-        if any(w in inner for w in PLACEHOLDER_WORDS):
-            return True
-    return False
+    hits = [m for m in _SEGMENT_RE.finditer(s)
+            if any(w in _fold(m.group(1)) for w in PLACEHOLDER_WORDS)]
+    if not hits:
+        return False
+    if len(s) <= _SHORT_LEN:                 # court + segment de gabarit -> gabarit
+        return True
+    covered = sum(len(m.group(0)) for m in hits)   # les <...> dominent-ils le doc ?
+    return covered / len(s) >= _DOMINANCE

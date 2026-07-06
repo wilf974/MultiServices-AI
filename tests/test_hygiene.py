@@ -40,3 +40,20 @@ def test_dans_le_doute_on_laisse_passer():
 def test_accents_et_casse_reconcilies():
     assert looks_like_placeholder("<Décision>") is True
     assert looks_like_placeholder("<LE TEXTE ICI>") is True
+
+
+def test_doc_reel_qui_documente_des_exemples_passe():
+    """Faux positif OBSERVE (06/07) : un RUNBOOK reel qui DOCUMENTE des commandes a trous
+    (<FAIT>, <decision|...>, <sujet-stable>) n'est PAS un gabarit non rempli : les <...> y
+    sont noyes dans un vrai doc, ils ne le DOMINENT pas. Distinct d'une commande courte collee."""
+    runbook = ('RUNBOOK setup poste client memoire centrale MultiService-IA (doc complet). '
+               'Exemple de commande a adapter : memlog-http "<FAIT>" --kind '
+               '<decision|correction|observation|validation|note|hypothesis> '
+               '--session "<sujet-stable>". Les certificats mTLS vivent dans C:/mem, '
+               'la source est imposee par le CN du certificat cote serveur (jamais le client).')
+    assert looks_like_placeholder(runbook) is False
+
+
+def test_commande_courte_a_trou_reste_un_gabarit():
+    # garde-fou : une commande COURTE collee sans remplir <FAIT> reste un gabarit (regression).
+    assert looks_like_placeholder('memlog-http "<FAIT>" --kind decision') is True
