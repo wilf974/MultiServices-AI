@@ -1,11 +1,57 @@
 """D14 - recall hybride : cosine, store, build_index, rerank semantique, repli lexical."""
+import io
+import json
 from datetime import datetime, timezone
 
 from multiservice.events import AetherEvent, EventType
 from multiservice.memory import recall_semantic
-from multiservice.semantic import EmbeddingStore, FakeEmbedder, build_index, cosine
+from multiservice.semantic import EmbeddingStore, FakeEmbedder, OllamaEmbedder, build_index, cosine
 
 T0 = datetime(2026, 6, 16, 10, 0, tzinfo=timezone.utc)
+
+
+class _FakeResp(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        self.close()
+        return False
+
+
+def test_ollama_embedder_tronque_les_inputs_a_6000(monkeypatch):
+    """llama-server (ctx 4096) mouline puis rejette au-dela : on tronque a 6000 car AVANT l'envoi.
+    Les textes courts passent inchanges."""
+    from multiservice import semantic as sem
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["body"] = json.loads(req.data.decode("utf-8"))
+        n = len(captured["body"]["input"])
+        return _FakeResp(json.dumps({"embeddings": [[0.0]] * n}).encode("utf-8"))
+
+    monkeypatch.setattr(sem, "urlopen", fake_urlopen)
+    OllamaEmbedder().embed(["x" * 7000, "court"])
+    sent = captured["body"]["input"]
+    assert len(sent[0]) == 6000                       # tronque
+    assert sent[1] == "court"                         # inchange
+
+
+def test_build_index_batch_defaut_borne_a_4(tmp_path):
+    """Defaut de batch conservateur (=4) : evite de saturer le serveur d'embedding."""
+    class RecordingEmbedder:
+        def __init__(self):
+            self.sizes = []
+
+        def embed(self, texts):
+            self.sizes.append(len(texts))
+            return [[float(len(t))] for t in texts]
+
+    emb = RecordingEmbedder()
+    store = EmbeddingStore(tmp_path / "e.jsonl")
+    pairs = [(f"id{i}", f"texte {i}") for i in range(10)]
+    build_index(pairs, emb, store)                    # sans batch -> defaut
+    assert emb.sizes and max(emb.sizes) <= 4
 
 
 def _ev(text, eid=None, at=T0):
