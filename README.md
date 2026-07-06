@@ -282,7 +282,8 @@ human decides**. Nothing is auto-deleted; a "fix" is a **C3 closure, never a del
 - **Deterministic detectors** (`curation()` tool / `multiservice.curation_report`) — read-only: exact
   duplicates, near-duplicates, unfilled templates, stale decisions, contradiction candidates, each
   citing its evidence. A **scheduled daily report** stays *quiet unless something is actionable*.
-- **Prevention at the source** — the remote-write path (`ingest`) refuses **unfilled templates** and
+- **Prevention at the source** — the remote-write path (`ingest`) refuses **secret values** (API
+  keys / tokens — a secret in an append-only journal is unerasable), **unfilled templates** and
   **exact live duplicates** (same source + kind + text), so that class of pollution can't re-enter
   (`--force` bypasses — human only, C1).
 - **A local-LLM comparator** (`multiservice.curation_llm`) — a **local** model (Ollama, never the

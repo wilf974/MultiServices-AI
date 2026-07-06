@@ -294,7 +294,8 @@ suppression**.
   doublons exacts, quasi-doublons, gabarits non remplis, décisions périmées, contradictions
   candidates, chacun citant ses preuves. Un **rapport quotidien planifié** reste *silencieux tant que
   rien n'est actionnable*.
-- **Prévention à la source** — le chemin d'écriture distant (`ingest`) refuse les **gabarits non
+- **Prévention à la source** — le chemin d'écriture distant (`ingest`) refuse les **valeurs de secret**
+  (clés d'API / jetons — un secret dans un journal append-only est ineffaçable), les **gabarits non
   remplis** et les **doublons exacts vivants** (même source + kind + texte), pour que cette pollution
   ne rentre plus (`--force` outrepasse — humain seul, C1).
 - **Un comparateur LLM local** (`multiservice.curation_llm`) — un modèle **local** (Ollama, jamais le
