@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from . import projlog
+from .hygiene import looks_like_placeholder
 from .journal import append_events
 
 
@@ -94,6 +95,24 @@ def ingest(payload: Dict[str, Any], cn: str, signature: str, body: bytes,
         return {"status": 422, "error": "invalid kind"}
     if not text or not text.strip():
         return {"status": 422, "error": "empty text"}
+    # Garde anti-gabarit (pollution observee au journal) ; contournement VOLONTAIRE = force (C1).
+    if looks_like_placeholder(text) and not bool(payload.get("force")):
+        return {"status": 422,
+                "error": "placeholder text (gabarit non rempli ; force=true pour outrepasser)"}
+    # Curation Phase 2 : closes/rejects valides si presents (listes d'ids non vides).
+    # closes = cloture C3 ciblee -> exige kind=correction (sinon inerte cote lecture).
+    extra = payload.get("data")
+    if extra is not None and not isinstance(extra, dict):
+        return {"status": 422, "error": "invalid data (objet attendu)"}
+    if isinstance(extra, dict):
+        for key in ("closes", "rejects"):
+            if key in extra:
+                val = extra[key]
+                if (not isinstance(val, list) or not val
+                        or not all(isinstance(x, str) and x for x in val)):
+                    return {"status": 422, "error": f"invalid {key} (liste d'ids attendue)"}
+        if "closes" in extra and kind != "correction":
+            return {"status": 422, "error": "closes exige kind=correction (cloture C3)"}
     source = client["source"]                       # C2 IMPOSEE (on ignore payload.source)
     session = payload.get("session") or "ingest"
     try:

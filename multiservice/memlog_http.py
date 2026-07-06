@@ -12,12 +12,23 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional, Tuple
 
+from .hygiene import looks_like_placeholder
+
 
 def build_request(text: str, kind: str, session: str, hmac_key: str,
-                  now: Optional[datetime] = None) -> Tuple[bytes, str]:
-    """Construit (corps JSON, signature HMAC hex). Nonce aleatoire, ts ISO8601 UTC."""
+                  now: Optional[datetime] = None, force: bool = False,
+                  data: Optional[dict] = None) -> Tuple[bytes, str]:
+    """Construit (corps JSON, signature HMAC hex). Nonce aleatoire, ts ISO8601 UTC.
+    `force=True` ajoute force au corps signe (le serveur laisse alors passer un texte
+    ressemblant a un gabarit) ; absent sinon (corps inchange pour les clients existants).
+    `data` (dict) voyage SIGNE dans le corps — ex curation Phase 2 : {"closes": [ids]}
+    (cloture ciblee) ou {"rejects": [ids]} (proposition rejetee)."""
     ts = (now or datetime.now(timezone.utc)).isoformat()
     payload = {"text": text, "kind": kind, "session": session, "ts": ts, "nonce": uuid.uuid4().hex}
+    if force:
+        payload["force"] = True
+    if data:
+        payload["data"] = data
     body = json.dumps(payload).encode("utf-8")
     sig = hmac.new(hmac_key.encode("utf-8"), body, hashlib.sha256).hexdigest()
     return body, sig
@@ -28,12 +39,37 @@ def main() -> None:
     p.add_argument("text")
     p.add_argument("--kind", default="decision")
     p.add_argument("--session", default="ingest")
+    p.add_argument("--force", action="store_true",
+                   help="journalise MEME si le texte ressemble a un gabarit non rempli")
+    p.add_argument("--closes", default="",
+                   help="curation approuvee : ids a CLORE precisement (virgules) ; "
+                        "exige --kind correction, session neutre recommandee (curation-closures)")
+    p.add_argument("--rejects", default="",
+                   help="proposition de curation REJETEE : ids cibles (virgules)")
     a = p.parse_args()
+
+    # Garde anti-gabarit (pollution observee au journal). Refus AVANT le reseau ; l'humain
+    # peut passer outre en connaissance de cause (--force, esprit C1).
+    if not a.force and looks_like_placeholder(a.text):
+        print("[memlog-http] REFUS : texte de gabarit non rempli (--force pour passer outre)")
+        raise SystemExit(2)
+
+    data = {}
+    closes = [x.strip() for x in a.closes.split(",") if x.strip()]
+    rejects = [x.strip() for x in a.rejects.split(",") if x.strip()]
+    if closes:
+        data["closes"] = closes                      # cloture CIBLEE (lue par _closes_index)
+    if rejects:
+        data["rejects"] = rejects                    # le journal EST la file (plus de pending)
+    if closes and a.kind != "correction":
+        print("[memlog-http] REFUS : --closes exige --kind correction (cloture C3)")
+        raise SystemExit(2)
 
     import ssl
     import httpx
     url = os.environ["MEM_INGEST_URL"]
-    body, sig = build_request(a.text, a.kind, a.session, os.environ["MEM_HMAC_KEY"])
+    body, sig = build_request(a.text, a.kind, a.session, os.environ["MEM_HMAC_KEY"],
+                              force=a.force, data=(data or None))
     # mTLS : le cert client est porte par un SSLContext (httpx >= 0.28 a retire l'argument cert
     # des fonctions de haut niveau ; verify=ctx reste valable sur toutes les versions recentes).
     ctx = ssl.create_default_context()

@@ -14,6 +14,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol, runtime_checkable
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
@@ -24,6 +25,19 @@ class Completion:
     input_tokens: int
     output_tokens: int
     cached_tokens: int = 0
+    tool_calls: Optional[list] = None   # tool calls emis par le modele (function calling), si presents
+
+
+class BackendError(RuntimeError):
+    """Erreur structuree d'un backend (cle absente, HTTP, reseau). `kind` est stable et
+    machine-lisible ; `status`/`detail` portent le contexte fournisseur quand il existe."""
+
+    def __init__(self, kind: str, message: str = "", status: Optional[int] = None,
+                 detail: Optional[str] = None) -> None:
+        super().__init__(message or kind)
+        self.kind = kind
+        self.status = status
+        self.detail = detail
 
 
 Message = Dict[str, str]
@@ -80,17 +94,46 @@ class OllamaBackend:
         self._think = think  # D13 : raisonnement coupe par defaut
         self._options = options or {}
 
-    def chat(self, messages: List[Message], on_token: OnToken = None) -> Completion:
+    def with_model(self, model: str) -> "OllamaBackend":
+        """Nouveau backend sur `model`, MEME config (host/timeout/think/options). PUR.
+        Le modele est un CHOIX de l'utilisateur (env MULTISERVICE_OLLAMA_MODEL,
+        --ollama-model, /model en session, champ webchat) - JAMAIS fige. L'original
+        n'est pas mute : les tours deja captures gardent leur model_id (C2)."""
+        nb = OllamaBackend.__new__(OllamaBackend)
+        nb.model_id = model
+        nb._url = self._url
+        nb._timeout = self._timeout
+        nb._think = self._think
+        nb._options = dict(self._options)
+        return nb
+
+    def chat(self, messages: List[Message], on_token: OnToken = None,
+             tools: Optional[list] = None) -> Completion:
+        # Avec tools (function calling) : NON-streaming (Ollama renvoie un seul objet + tool_calls).
         payload: Dict[str, Any] = {
-            "model": self.model_id, "messages": messages, "stream": True,
+            "model": self.model_id, "messages": messages, "stream": tools is None,
             "think": self._think,
         }
+        if tools is not None:
+            payload["tools"] = tools
         if self._options:
             payload["options"] = self._options
         req = Request(
             self._url, data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"}, method="POST",
         )
+        if tools is not None:
+            with urlopen(req, timeout=self._timeout) as resp:
+                obj = json.loads(resp.read().decode("utf-8"))
+            msg = obj.get("message") or {}
+            text = msg.get("content", "") or ""
+            if on_token and text:
+                on_token(text)
+            return Completion(
+                text, obj.get("model", self.model_id),
+                int(obj.get("prompt_eval_count", 0)), int(obj.get("eval_count", 0)),
+                tool_calls=(msg.get("tool_calls") or None),
+            )
         parts: List[str] = []
         model = self.model_id
         pin = pout = 0
@@ -144,16 +187,113 @@ class EmbeddedGGUF:
         )
 
     def chat(self, messages: List[Message], on_token: OnToken = None,
-             max_tokens: int = 512, temperature: float = 0.7) -> Completion:
-        r = self._llm.create_chat_completion(
-            messages=messages, max_tokens=max_tokens, temperature=temperature
-        )
-        msg = r["choices"][0]["message"]["content"] or ""
-        if on_token:
-            on_token(msg)
+             max_tokens: int = 512, temperature: float = 0.7,
+             tools: Optional[list] = None) -> Completion:
+        kwargs: Dict[str, Any] = {"messages": messages, "max_tokens": max_tokens,
+                                  "temperature": temperature}
+        if tools:                                       # function calling best-effort (depend du modele/format)
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
+        try:
+            r = self._llm.create_chat_completion(**kwargs)
+        except Exception:                               # modele/format sans function-calling -> chat simple
+            if "tools" not in kwargs:
+                raise
+            kwargs.pop("tools", None)
+            kwargs.pop("tool_choice", None)
+            r = self._llm.create_chat_completion(**kwargs)
+        msg = r["choices"][0]["message"]
+        text = msg.get("content") or ""
+        if on_token and text:
+            on_token(text)
         u = r.get("usage", {}) or {}
+        tcs = None                                      # tool_calls OpenAI-style -> {function:{name,arguments(dict)}}
+        raw = msg.get("tool_calls") or None
+        if raw:
+            tcs = []
+            for tc in raw:
+                fn = tc.get("function") or {}
+                a = fn.get("arguments")
+                if isinstance(a, str):                  # llama-cpp serialise les args en chaine JSON
+                    try:
+                        a = json.loads(a)
+                    except Exception:
+                        a = {}
+                tcs.append({"function": {"name": fn.get("name", ""), "arguments": a or {}}})
         return Completion(
-            text=msg, model_id=self.model_id,
+            text=text, model_id=self.model_id,
+            input_tokens=int(u.get("prompt_tokens", 0)),
+            output_tokens=int(u.get("completion_tokens", 0)),
+            tool_calls=tcs,
+        )
+
+    def generate(self, composed_prompt: str) -> Completion:
+        return self.chat([{"role": "user", "content": composed_prompt}])
+
+
+class PerplexityBackend:
+    """Backend CLOUD Perplexity (Sonar), OpenAI-compatible, stdlib `urllib` (zero dependance).
+
+    NON LOCAL : le routeur ne le choisit que pour un tour NON sensible ET cloud explicitement
+    permis (politique 'sensible -> local seul', cf. policy.decide). count_source='provider_usage'
+    (la facture du fournisseur fait foi, D9). Cle via env, JAMAIS dans le repo ; erreurs
+    structurees (BackendError) ; timeout explicite. Pluggable : meme interface Backend que les
+    autres, donc d'autres clouds suivront le meme patron sans toucher au routeur.
+    """
+
+    count_source = "provider_usage"
+
+    DEFAULT_URL = "https://api.perplexity.ai/chat/completions"
+    DEFAULT_MODEL = "sonar"
+
+    def __init__(self, api_key: str = "", model: str = DEFAULT_MODEL,
+                 url: str = DEFAULT_URL, timeout: int = 60) -> None:
+        self.model_id = model
+        self._key = api_key
+        self._url = url
+        self._timeout = timeout
+
+    @classmethod
+    def from_env(cls) -> "PerplexityBackend":
+        """Construit depuis l'environnement : PPLX_API_KEY / PPLX_MODEL / PPLX_API_URL.
+        La cle reste obligatoire a l'appel (verifiee dans chat), pas a la construction."""
+        import os
+        return cls(
+            api_key=os.environ.get("PPLX_API_KEY", ""),
+            model=os.environ.get("PPLX_MODEL", cls.DEFAULT_MODEL),
+            url=os.environ.get("PPLX_API_URL", cls.DEFAULT_URL),
+        )
+
+    def chat(self, messages: List[Message], on_token: OnToken = None) -> Completion:
+        if not self._key:
+            raise BackendError("missing_api_key",
+                               "PPLX_API_KEY requis pour activer PerplexityBackend.")
+        payload: Dict[str, Any] = {"model": self.model_id, "messages": messages}
+        req = Request(
+            self._url, data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json",
+                     "Authorization": f"Bearer {self._key}"}, method="POST",
+        )
+        try:
+            with urlopen(req, timeout=self._timeout) as resp:
+                obj = json.loads(resp.read().decode("utf-8"))
+        except HTTPError as e:
+            body = ""
+            try:
+                body = e.read().decode("utf-8", "replace")
+            except Exception:
+                pass
+            raise BackendError("http_error", f"Perplexity HTTP {e.code}",
+                               status=e.code, detail=body) from e
+        except URLError as e:
+            raise BackendError("network_error",
+                               f"Perplexity injoignable : {e.reason}") from e
+        text = (obj["choices"][0]["message"].get("content") or "")
+        if on_token:
+            on_token(text)
+        u = obj.get("usage", {}) or {}
+        return Completion(
+            text=text, model_id=obj.get("model", self.model_id),
             input_tokens=int(u.get("prompt_tokens", 0)),
             output_tokens=int(u.get("completion_tokens", 0)),
         )

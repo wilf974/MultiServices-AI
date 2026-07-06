@@ -46,9 +46,12 @@ def events_for_turn(
     now: Optional[datetime] = None,
     served_from: Optional[str] = None,
     full_input_tokens: Optional[int] = None,
+    routing: Optional[dict] = None,
 ) -> List[AetherEvent]:
     """Construit prompt + completion + token_usage d'un tour deja produit. PUR.
-    served_from (ex: 'result-cache') trace qu'un tour a ete servi sans appeler le modele."""
+    served_from (ex: 'result-cache') trace qu'un tour a ete servi sans appeler le modele.
+    routing (ex: {routed_to, routing_reason, sensitivity_reasons, cloud_ok, has_cloud}) = passe-plat
+    de PROVENANCE de routage : la capture l'INTEGRE, elle ne DECIDE jamais (ne casse pas la purete)."""
     ts = _now(now)
     turn_id = turn_id or str(uuid.uuid4())
     base = {"turn_id": turn_id, "session_id": session_id}
@@ -62,7 +65,8 @@ def events_for_turn(
         type=EventType.COMPLETION, title="completion", description=ctext,
         source=f"llm:{completion.model_id}", observed_at=ts,
         data={**base, "model_id": completion.model_id, "text": ctext,
-              **({"served_from": served_from} if served_from else {})},
+              **({"served_from": served_from} if served_from else {}),
+              **(routing or {})},
     )
     token_ev = AetherEvent(
         type=EventType.TOKEN_USAGE, title="token_usage", source="meter", observed_at=ts,
@@ -76,6 +80,7 @@ def events_for_turn(
             **({"full_input_tokens": full_input_tokens,
                "saved_input_tokens": max(0, full_input_tokens - completion.input_tokens)}
                if full_input_tokens is not None else {}),
+            **(routing or {}),
         },
     )
     return [prompt_ev, completion_ev, token_ev]

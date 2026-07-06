@@ -6,29 +6,74 @@ recall depuis le journal, aucun cache. Streaming + REPL resilient : une erreur b
 
 Usage : python -m multiservice.chat --ollama
         python -m multiservice.chat --ollama --timeout 900
+        python -m multiservice.chat --ollama --ollama-model qwen3.6:latest
         python -m multiservice.chat --stub
-Commandes : /quit  /reset  /journal
+Commandes : /quit  /reset  /journal  /correct  /note  /model
+Le MODELE est un choix, jamais fige : env MULTISERVICE_OLLAMA_MODEL, --ollama-model au
+lancement, /model <nom> en cours de session (la capture C2 porte le modele de chaque tour).
 """
 from __future__ import annotations
 
 import argparse
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from . import config
+from . import config, policy
 from .backends import Backend, Completion, OllamaBackend, StubBackend
 from .cache import ResultCache
 from .compose import compose
 from .events import AetherEvent, EventType
 from .journal import append_events, read_events
 from .memory import recall, recall_semantic
+from .agent import run_with_memory_tools
 from .policy import is_sensitive
 from .router import events_for_turn
+from .routing import Router
 from .semcache import SemanticCache
 
 Message = Dict[str, str]
+
+
+@dataclass
+class TurnResult:
+    completion: Completion
+    count_source: str
+    routing: dict
+    used_memory_tools: bool
+    agent: Optional[object] = None       # AgentResult si outils memoire utilises (sinon None)
+
+
+def should_expose_memory_tools(route: str, memory_tools_enabled: bool) -> bool:
+    """Souverainete cloud+tools : les outils memoire ne sont exposes QUE pour un tour LOCAL.
+    Si le tour est lance en mode cloud (routage cloud), AUCUN outil memoire (ni recall ni remember),
+    meme s'il fallback local ensuite. Le sensible et la memoire ne partent jamais au cloud."""
+    return bool(memory_tools_enabled) and route == "local"
+
+
+def serve_turn(router: Router, prompt: str, sent: List[Message], cloud_ok: bool,
+               memory_tools: bool, journal_path: str | Path, session_id: str,
+               embedder=None, store=None, on_token=None) -> TurnResult:
+    """Sert un tour en respectant la souverainete cloud+tools. On decide la route (policy) AVANT :
+    - tour LOCAL + memory_tools -> outils memoire exposes (le modele cherche/ecrit lui-meme) ;
+    - tour CLOUD (ou memory_tools off) -> generation via le routeur, SANS aucun outil memoire
+      (fallback local eventuel reste sans outils dans cette passe)."""
+    decision = policy.decide(prompt, cloud_ok=cloud_ok, has_cloud=router.cloud is not None)
+    if should_expose_memory_tools(decision.route, memory_tools):
+        res = run_with_memory_tools(router.local, sent, str(journal_path), session_id,
+                                    embedder=embedder, store=store, on_token=on_token)
+        prov = {
+            "routed_to": "local", "routing_reason": "memory_tools",
+            "sensitivity_reasons": list(decision.sensitivity.reasons),
+            "cloud_ok": cloud_ok, "has_cloud": router.cloud is not None,
+            "memory_tool_calls": sum(1 for e in res.tool_events if e.type == EventType.TOOL_CALL),
+        }
+        return TurnResult(res.completion, router.local.count_source, prov, True, agent=res)
+    completion, count_source, prov = router.generate(
+        prompt, cloud_ok=cloud_ok, sent=sent, on_token=on_token)
+    return TurnResult(completion, count_source, prov, False)
 
 
 def build_recall_context(events, query, session_id, k=3,
@@ -77,11 +122,13 @@ def inject_context(sent, context_block):
 def record_turn(prompt_text: str, completion: Completion, count_source: str,
                 journal_path: str | Path, session_id: str,
                 now: Optional[datetime] = None, served_from: Optional[str] = None,
-                full_input_tokens: Optional[int] = None) -> int:
-    """Journalise un tour deja produit (append-only). Retourne le nb d'evts ecrits."""
+                full_input_tokens: Optional[int] = None,
+                routing: Optional[dict] = None) -> int:
+    """Journalise un tour deja produit (append-only). Retourne le nb d'evts ecrits.
+    `routing` = provenance du routeur (passe-plat) ; record_turn NE decide rien (capture pure)."""
     evs = events_for_turn(prompt_text, completion, count_source,
                           session_id=session_id, now=now, served_from=served_from,
-                          full_input_tokens=full_input_tokens)
+                          full_input_tokens=full_input_tokens, routing=routing)
     return append_events(journal_path, evs)
 
 
@@ -132,8 +179,11 @@ def run_repl(backend: Backend, journal_path: str | Path, system_prompt: str = ""
              keep_turns: int = 6, semcache: Optional[SemanticCache] = None,
              semcache_threshold: float = 0.95, recall_ctx: bool = False,
              recall_k: int = 3, recall_min_score: float = 0.4,
-             recall_embedder=None, recall_store=None) -> None:
+             recall_embedder=None, recall_store=None,
+             cloud_backend: Optional[Backend] = None, cloud_ok: bool = False,
+             memory_tools: bool = False) -> None:
     session_id = str(uuid.uuid4())
+    router = Router(backend, cloud_backend)          # local par defaut ; cloud ssi permis+non sensible
     messages: List[Message] = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
@@ -157,6 +207,20 @@ def run_repl(backend: Backend, journal_path: str | Path, system_prompt: str = ""
         if user == "/journal":
             print(f"[journal] {journal_path}\n")
             continue
+        if user.startswith("/model"):
+            name = user[len("/model"):].strip()
+            if not name:
+                print(f"[modele] courant : {backend.model_id} ; /model <nom> pour changer\n")
+                continue
+            if not isinstance(backend, OllamaBackend):
+                print("[modele] changement en vol : backend Ollama seulement "
+                      "(gguf/stub -> relancer avec --model)\n")
+                continue
+            backend = backend.with_model(name)
+            router.local = backend               # le routeur sert desormais ce modele en local
+            print(f"[modele] {backend.model_id} "
+                  "(chaque tour journalise porte le modele qui l'a servi, C2)\n")
+            continue
         if user.startswith("/correct"):
             note = user[len("/correct"):].strip()
             if not note:
@@ -178,6 +242,8 @@ def run_repl(backend: Backend, journal_path: str | Path, system_prompt: str = ""
         messages.append({"role": "user", "content": user})
         served_from = None
         full_in = None
+        routing_prov = None                          # provenance de routage du tour (live uniquement)
+        turn_count_source = backend.count_source     # ecrase par le routeur si appel modele live
         journal_events = read_events(journal_path)
         served = cache.get(messages, session_id, journal_events) if cache else None
         sem = None if served is not None else maybe_serve_semantic(
@@ -192,24 +258,57 @@ def run_repl(backend: Backend, journal_path: str | Path, system_prompt: str = ""
             served_from = "semantic-cache"
         else:
             sent = compose(messages, keep_turns) if compact else list(messages)
-            if recall_ctx:                            # memoire vivante : injecte les souvenirs pertinents
-                ctx = build_recall_context(journal_events, user, session_id,
-                                           k=recall_k, min_score=recall_min_score,
-                                           embedder=recall_embedder, store=recall_store)
-                if ctx:
-                    sent = inject_context(sent, ctx)
-                    print("[memoire injectee]")
-            try:
-                completion = backend.chat(sent, on_token=lambda t: print(t, end="", flush=True))
-            except KeyboardInterrupt:
-                print("\n[generation interrompue] tour ignore, session intacte.\n")
-                messages.pop()
-                continue
-            except Exception as e:  # timeout, reseau, JSON... -> on NE crashe PAS
-                print(f"\n[erreur backend: {e}]\n   -> tour ignore, rien journalise. Reessaie, /reset, ou augmente --timeout.\n")
-                messages.pop()
-                continue
-            print("\n")
+            if memory_tools:
+                # MEMOIRE AGENTIQUE + souverainete cloud : outils exposes SEULEMENT si le tour est LOCAL
+                # (serve_turn decide la route AVANT ; un tour cloud n'a aucun outil memoire).
+                try:
+                    tr = serve_turn(router, user, sent, cloud_ok, True, journal_path, session_id,
+                                    embedder=recall_embedder, store=recall_store,
+                                    on_token=lambda t: print(t, end="", flush=True))
+                except KeyboardInterrupt:
+                    print("\n[generation interrompue] tour ignore, session intacte.\n")
+                    messages.pop()
+                    continue
+                except Exception as e:  # backend non outillable, reseau... -> on NE crashe PAS
+                    print(f"\n[erreur backend: {e}]\n   -> tour ignore (--memory-tools exige --ollama).\n")
+                    messages.pop()
+                    continue
+                completion = tr.completion
+                turn_count_source = tr.count_source
+                routing_prov = tr.routing
+                if tr.used_memory_tools:
+                    print(f"\n[memoire agentique LOCALE : {tr.routing.get('memory_tool_calls', 0)} "
+                          f"appel(s) d'outil par le modele]\n")
+                else:
+                    print(f"\n[routage -> {tr.routing['routed_to']} ({tr.routing['routing_reason']})] "
+                          f"- outils memoire NON exposes (souverainete cloud)\n")
+            else:
+                if recall_ctx:                        # memoire vivante : injecte les souvenirs pertinents
+                    ctx = build_recall_context(journal_events, user, session_id,
+                                               k=recall_k, min_score=recall_min_score,
+                                               embedder=recall_embedder, store=recall_store)
+                    if ctx:
+                        sent = inject_context(sent, ctx)
+                        print("[memoire injectee]")
+                try:
+                    completion, turn_count_source, prov = router.generate(
+                        user, cloud_ok=cloud_ok, sent=sent,
+                        on_token=lambda t: print(t, end="", flush=True))
+                except KeyboardInterrupt:
+                    print("\n[generation interrompue] tour ignore, session intacte.\n")
+                    messages.pop()
+                    continue
+                except Exception as e:  # timeout, reseau, JSON... -> on NE crashe PAS
+                    print(f"\n[erreur backend: {e}]\n   -> tour ignore, rien journalise. Reessaie, /reset, ou augmente --timeout.\n")
+                    messages.pop()
+                    continue
+                # Provenance de routage : pertinente seulement si le cloud etait en jeu. En local pur
+                # (ni cloud_ok ni backend cloud), aucun choix de routage -> pas de bruit (event/console).
+                routing_prov = prov if (cloud_ok or cloud_backend is not None) else None
+                if routing_prov:
+                    print(f"\n[routage -> {routing_prov['routed_to']} ({routing_prov['routing_reason']})]\n")
+                else:
+                    print("\n")
             if compact and sent is not messages:        # estimer le 'full' (ratio caracteres)
                 full_chars = sum(len(m.get("content", "")) for m in messages)
                 sent_chars = sum(len(m.get("content", "")) for m in sent)
@@ -219,8 +318,8 @@ def run_repl(backend: Backend, journal_path: str | Path, system_prompt: str = ""
                 cache.put(messages, completion, session_id=session_id)
             maybe_store_semantic(semcache, user, completion, session_id)
         messages.append({"role": "assistant", "content": completion.text})
-        record_turn(user, completion, backend.count_source, journal_path, session_id,
-                    served_from=served_from, full_input_tokens=full_in)
+        record_turn(user, completion, turn_count_source, journal_path, session_id,
+                    served_from=served_from, full_input_tokens=full_in, routing=routing_prov)
 
 
 def _build_backend(args: argparse.Namespace) -> Backend:
@@ -266,8 +365,20 @@ def main() -> None:
                    help="memoire vivante : injecte les souvenirs pertinents du journal dans le prompt")
     p.add_argument("--recall-k", type=int, default=3, dest="recall_k")
     p.add_argument("--recall-min-score", type=float, default=0.4, dest="recall_min_score")
+    p.add_argument("--cloud", action="store_true",
+                   help="routage cloud (Perplexity) pour les tours NON sensibles "
+                        "(cle via PPLX_API_KEY ; sensible -> local toujours ; cloud KO -> repli local)")
+    p.add_argument("--memory-tools", action="store_true", dest="memory_tools",
+                   help="memoire AGENTIQUE : le MODELE appelle lui-meme recall/recent/why/.../remember "
+                        "(remember ecrit dans project:ollama, append-only, non-autoritaire). Exige --ollama.")
     args = p.parse_args()
     backend = _build_backend(args)
+    cloud_backend = None
+    cloud_ok = False
+    if args.cloud:                                    # backend cloud optionnel, opt-in explicite
+        from .backends import PerplexityBackend
+        cloud_backend = PerplexityBackend.from_env()
+        cloud_ok = True
     cache = ResultCache(args.cache_path) if args.cache else None
     semcache = None
     if args.semcache:
@@ -275,7 +386,7 @@ def main() -> None:
         embedder = OllamaEmbedder(model=config.EMBED_MODEL, host=config.OLLAMA_HOST)
         semcache = SemanticCache(args.semcache_path, embedder)
     recall_embedder = recall_store = None
-    if args.recall_ctx:                              # injection HYBRIDE : embedder + index locaux
+    if args.recall_ctx or args.memory_tools:         # embedder + index locaux (injection OU outil recall_semantic)
         from .semantic import EmbeddingStore, OllamaEmbedder
         recall_embedder = OllamaEmbedder(model=config.EMBED_MODEL, host=config.OLLAMA_HOST)
         recall_store = EmbeddingStore(config.EMBED_PATH)
@@ -284,7 +395,9 @@ def main() -> None:
              semcache=semcache, semcache_threshold=args.semcache_threshold,
              recall_ctx=args.recall_ctx, recall_k=args.recall_k,
              recall_min_score=args.recall_min_score,
-             recall_embedder=recall_embedder, recall_store=recall_store)
+             recall_embedder=recall_embedder, recall_store=recall_store,
+             cloud_backend=cloud_backend, cloud_ok=cloud_ok,
+             memory_tools=args.memory_tools)
 
 
 if __name__ == "__main__":

@@ -74,6 +74,38 @@ def _superseded_by(corr_idx: Dict[Any, list], session_id: Any,
     return [cid for (cvf, cid) in corr_idx.get(session_id, []) if cvf and cvf > vf]
 
 
+def _closes_index(events: List[AetherEvent],
+                  as_of: Optional[datetime] = None) -> Dict[str, List[str]]:
+    """Cloture CIBLEE (curation Phase 2) : {event_id vise: [ids des corrections qui le closent]}.
+    Une CORRECTION valide a as_of portant `data.closes=[ids]` clot PRECISEMENT ces evenements
+    — et rien d'autre : elle vit dans une session neutre (ex 'curation-closures') pour ne pas
+    declencher le supersede session+temps sur la session d'origine (l'original a garder y
+    survivrait pas sinon). PUR, LECTURE SEULE."""
+    asof = _aware(as_of) or datetime.now(timezone.utc)
+    idx: Dict[str, List[str]] = {}
+    for e in events:
+        if e.type != EventType.CORRECTION:
+            continue
+        closes = e.data.get("closes")
+        if not isinstance(closes, list) or not closes:
+            continue
+        vf = _aware(e.valid_from)
+        if vf and vf > asof:
+            continue                                 # pas encore valide (bi-temporel)
+        vt = _aware(e.valid_to)
+        if vt and vt < asof:
+            continue                                 # la cloture elle-meme est close (C3)
+        for target in closes:
+            if isinstance(target, str) and target:
+                idx.setdefault(target, []).append(e.id)
+    return idx
+
+
+def _closed_by(closes_idx: Dict[str, List[str]], event_id: str) -> List[str]:
+    """Ids des corrections qui CLOSENT precisement cet evenement (liste vide sinon). PUR."""
+    return list(closes_idx.get(event_id, []))
+
+
 def _snippet(text: str, query: str, width: int = 200) -> str:
     """Extrait centre sur le 1er terme de la requete trouve, avec ellipses. PUR, econome.
     Renvoie le texte entier s'il est deja court. Evite le dump : la sortie reste legere."""
@@ -126,6 +158,7 @@ def recall(events: List[AetherEvent], query: str, as_of: Optional[datetime] = No
     et STRUCTURE : has_code (bloc ```), has_table (tableau markdown). Teste sur le texte complet."""
     asof = _aware(as_of) or datetime.now(timezone.utc)
     corr_idx = _corrections_index(events)            # C3 : fraicheur (correction posterieure ?)
+    closes_idx = _closes_index(events, as_of=asof)   # clotures CIBLEES (curation)
     hits = []
     for e in events:
         if type_ and e.type.value != type_:
@@ -146,7 +179,8 @@ def recall(events: List[AetherEvent], query: str, as_of: Optional[datetime] = No
         sc = _score(query, txt)
         if sc <= 0:
             continue                                 # aucun mot de la requete present
-        corrected = _superseded_by(corr_idx, e.data.get("session_id"), vf)
+        corrected = (_superseded_by(corr_idx, e.data.get("session_id"), vf)
+                     + _closed_by(closes_idx, e.id))
         hits.append({
             "id": e.id, "type": e.type.value, "source": e.source,
             "valid_from": vf.isoformat() if vf else None,
@@ -332,14 +366,24 @@ def topic_brief(events: List[AetherEvent], query: str, k: int = 5,
 
 
 def recent(events: List[AetherEvent], days: int = 7,
-           now: Optional[datetime] = None, k: int = 10) -> Dict[str, Any]:
+           now: Optional[datetime] = None, k: int = 10,
+           source_prefix: Optional[str] = None,
+           limit: Optional[int] = 20) -> Dict[str, Any]:
     """« Quoi de neuf » : evenements de la fenetre `days`, du plus recent au plus ancien. PUR,
     LECTURE SEULE. Point d'entree d'une REPRISE : separe `decisions` et `corrections`, et donne
-    les `latest` k evenements textuels recents (extrait). S'appuie sur la bi-temporalite (C3)."""
+    les `latest` k evenements textuels recents (extrait). S'appuie sur la bi-temporalite (C3).
+
+    Economie de SORTIE (calibree sur le reel : journal central multi-projets, recent(14)
+    debordait a ~70 Ko / 705 events) : `source_prefix` restreint a un projet (graphies
+    reconciliees par l'alias canonique) ; `limit` plafonne `decisions` et `corrections`
+    (les plus recentes d'abord ; None = tout). Rien n'est cache en silence : `counts`
+    reste COMPLET et `truncated` signale la coupe."""
     now = _aware(now) or datetime.now(timezone.utc)
     cutoff = now - timedelta(days=days)
     rec = []
     for e in events:
+        if not _source_matches(e.source, source_prefix):
+            continue
         vf = _aware(e.valid_from)
         if vf is None or vf < cutoff or vf > now:
             continue
@@ -351,10 +395,16 @@ def recent(events: List[AetherEvent], days: int = 7,
                 "valid_from": _aware(e.valid_from).isoformat(),
                 "session_id": e.data.get("session_id"), "text": _text(e)[:160]}
 
+    decisions = [e for e in rec if e.type == EventType.DECISION]
+    corrections = [e for e in rec if e.type == EventType.CORRECTION]
+    lim = None if limit is None else max(0, limit)
     return {
         "since": cutoff.isoformat(), "days": days, "count": len(rec),
-        "decisions": [brief(e) for e in rec if e.type == EventType.DECISION],
-        "corrections": [brief(e) for e in rec if e.type == EventType.CORRECTION],
+        "counts": {"decisions": len(decisions), "corrections": len(corrections)},
+        "truncated": bool(lim is not None
+                          and (len(decisions) > lim or len(corrections) > lim)),
+        "decisions": [brief(e) for e in decisions[:lim]],
+        "corrections": [brief(e) for e in corrections[:lim]],
         "latest": [brief(e) for e in rec if _text(e).strip()][:k],
     }
 
@@ -402,13 +452,26 @@ def reasoning_chain(events: List[AetherEvent], session_id: str,
             "stages_present": present, "stages_missing": missing, "count": len(steps)}
 
 
-def lessons_learned(events: List[AetherEvent], as_of: Optional[datetime] = None) -> Dict[str, Any]:
+def lessons_learned(events: List[AetherEvent], as_of: Optional[datetime] = None,
+                    source_prefix: Optional[str] = None,
+                    k: Optional[int] = 20, standing_k: Optional[int] = 20,
+                    superseded_k: Optional[int] = 5) -> Dict[str, Any]:
     """Lecons tirees des CORRECTIONS (C3) : ce qui a ete revise/abandonne, et la verite courante.
     PUR, LECTURE SEULE. Une lecon = une correction + les faits anterieurs de SA session qu'elle
     perime. `still_standing` = les decisions encore valides (non corrigees). Cite ses preuves.
-    Vide tant qu'aucune correction n'est journalisee (calibre sur l'observe, pas invente)."""
+    Vide tant qu'aucune correction n'est journalisee (calibre sur l'observe, pas invente).
+
+    Economie de SORTIE (calibree sur le reel : lessons() debordait a ~80 Ko / 44 lecons +
+    94 verites sur le journal central multi-projets) : `source_prefix` restreint a un projet ;
+    `k` plafonne les lecons (les plus recentes d'abord), `standing_k` les verites debout,
+    `superseded_k` les preuves citees PAR lecon (les plus proches de la correction d'abord).
+    None = tout. Rien n'est cache en silence : `counts` reste COMPLET (avant plafonds),
+    `truncated` signale la coupe, `superseded_count` garde le total par lecon."""
     asof = _aware(as_of) or datetime.now(timezone.utc)
     floor = datetime.min.replace(tzinfo=timezone.utc)
+    k = None if k is None else max(0, k)
+    standing_k = None if standing_k is None else max(0, standing_k)
+    superseded_k = None if superseded_k is None else max(0, superseded_k)
 
     def valid(e: AetherEvent) -> bool:
         vf = _aware(e.valid_from)
@@ -417,26 +480,33 @@ def lessons_learned(events: List[AetherEvent], as_of: Optional[datetime] = None)
         vt = _aware(e.valid_to)
         return not (vt and vt < asof)
 
+    closes_idx = _closes_index(events, as_of=asof)   # clotures CIBLEES (curation)
     corrections = sorted(
-        [e for e in events if e.type == EventType.CORRECTION and valid(e)],
+        [e for e in events
+         if e.type == EventType.CORRECTION and valid(e)
+         and _source_matches(e.source, source_prefix)
+         and not _closed_by(closes_idx, e.id)],      # une correction close (doublon) sort
         key=lambda e: _aware(e.valid_from) or floor)
 
     lessons = []
     for c in corrections:
         sid = c.data.get("session_id")
         cvf = _aware(c.valid_from) or floor
-        superseded = [
-            {"id": e.id, "type": e.type.value, "text": _text(e)[:200]}
-            for e in events
-            if sid is not None and e.data.get("session_id") == sid
-            and e.type in _FACT_TYPES and (_aware(e.valid_from) or floor) < cvf
-        ] if sid is not None else []
+        superseded = sorted(
+            [e for e in events
+             if sid is not None and e.data.get("session_id") == sid
+             and e.type in _FACT_TYPES and (_aware(e.valid_from) or floor) < cvf],
+            key=lambda e: _aware(e.valid_from) or floor,
+            reverse=True) if sid is not None else []     # les plus proches de la correction d'abord
         lessons.append({
             "session": sid,
             "when": (cvf.isoformat() if c.valid_from else None),
             "source": c.source,
             "correction": _text(c)[:300],          # la verite courante / le « pourquoi »
-            "superseded": superseded,              # ce qui a ete revise / abandonne
+            "superseded_count": len(superseded),   # total AVANT plafond (rien de cache)
+            "superseded": [                        # ce qui a ete revise / abandonne (borne)
+                {"id": e.id, "type": e.type.value, "text": _text(e)[:200]}
+                for e in superseded[:superseded_k]],
         })
 
     # Deduplication de la SORTIE : une meme correction (session + texte) ne compte qu'une fois
@@ -445,19 +515,29 @@ def lessons_learned(events: List[AetherEvent], as_of: Optional[datetime] = None)
     for L in lessons:
         by_key[(L["session"], _norm(L["correction"]))] = L     # le plus recent ecrase
     lessons = sorted(by_key.values(), key=lambda L: L["when"] or "", reverse=True)
+    n_lessons = len(lessons)                       # compte COMPLET, avant plafond
 
     corr_idx = _corrections_index(events)
+    standing_all = [
+        e for e in events
+        if e.type == EventType.DECISION and valid(e)
+        and _source_matches(e.source, source_prefix)
+        and not _superseded_by(corr_idx, e.data.get("session_id"), _aware(e.valid_from))
+        and not _closed_by(closes_idx, e.id)         # une decision close ne tient plus debout
+    ]
+    standing_all.sort(key=lambda e: _aware(e.valid_from) or floor, reverse=True)
     still_standing = [
         {"id": e.id, "type": e.type.value, "session": e.data.get("session_id"),
+         "valid_from": (_aware(e.valid_from).isoformat() if e.valid_from else None),
          "text": _text(e)[:200]}
-        for e in events
-        if e.type == EventType.DECISION and valid(e)
-        and not _superseded_by(corr_idx, e.data.get("session_id"), _aware(e.valid_from))
+        for e in standing_all[:standing_k]
     ]
     return {
-        "lessons": lessons,
+        "lessons": lessons[:k],
         "still_standing": still_standing,
-        "counts": {"lessons": len(lessons), "still_standing": len(still_standing)},
+        "counts": {"lessons": n_lessons, "still_standing": len(standing_all)},
+        "truncated": bool((k is not None and n_lessons > k)
+                          or (standing_k is not None and len(standing_all) > standing_k)),
     }
 
 
@@ -567,6 +647,7 @@ def recall_semantic(events: List[AetherEvent], query: str, embedder, store,
     from .semantic import cosine
     asof = _aware(as_of) or datetime.now(timezone.utc)
     corr_idx = _corrections_index(events)            # C3 : fraicheur (correction posterieure ?)
+    closes_idx = _closes_index(events, as_of=asof)   # clotures CIBLEES (curation)
     vecs = store.load()
     cand = []
     for e in events:
@@ -593,7 +674,8 @@ def recall_semantic(events: List[AetherEvent], query: str, embedder, store,
         fused = round(sw * sem_n + (1.0 - sw) * lex, 4)
         if fused < min_fused:                            # plancher : on etouffe le bruit
             continue
-        corrected = _superseded_by(corr_idx, e.data.get("session_id"), _aware(e.valid_from))
+        corrected = (_superseded_by(corr_idx, e.data.get("session_id"), _aware(e.valid_from))
+                     + _closed_by(closes_idx, e.id))
         h = {
             "id": e.id, "type": e.type.value, "source": e.source,
             "valid_from": (_aware(e.valid_from).isoformat() if e.valid_from else None),

@@ -14,8 +14,9 @@ ne JAMAIS abaisser la garde sans preuve terrain (lecon BITS : calibrer sur l'obs
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
-from typing import List
+from typing import List, Literal, Tuple
 
 from .skills import _norm
 
@@ -41,11 +42,9 @@ SENSITIVE_MARKERS: List[str] = [
 
 def is_sensitive(text: str) -> bool:
     """Vrai si le texte doit rester LOCAL (secret/confidentiel OU intention d'acces non autorise).
-    PUR, accent-insensible, conservateur. v1 par marqueurs observes."""
-    if not text or not text.strip():
-        return False
-    low = _norm(text)
-    return any(m in low for m in SENSITIVE_MARKERS)
+    PUR, accent-insensible, conservateur. RETRO-COMPATIBLE (bool).
+    Source unique de verite : delegue a classify() (union marqueurs FR + detecteurs regex)."""
+    return classify(text).sensitive
 
 
 @dataclass(frozen=True)
@@ -70,3 +69,87 @@ def route(prompt: str, allow_cloud: bool = False,
     if not (allow_cloud and cloud_available):
         return RouteDecision(LOCAL, False, "cloud non permis ou indisponible : repli local (fail-safe)")
     return RouteDecision(CLOUD, False, "tour non sensible, cloud permis et disponible")
+
+
+# =====================================================================================
+# API riche (tranche 1 routeur multi-fournisseurs) : verdict a raisons + decision a raison.
+# Detecteur = UNION des marqueurs FR (ci-dessus, calibres sur le reel) ET de detecteurs regex
+# (secrets/PII). On ne baisse JAMAIS la garde : on ne fait qu'ajouter des signaux. Bord de mot
+# partout (pas de match substring naif : "good morning" ne doit pas matcher).
+# =====================================================================================
+
+# Detecteurs regex granulaires (raison -> motif). Conservateurs, bornes par \b ou lookbehind.
+_EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+_SK = re.compile(r"\bsk-[A-Za-z0-9]{6,}\b")
+_PPLX = re.compile(r"\bpplx-[A-Za-z0-9]{6,}\b")
+_AKIA = re.compile(r"\bAKIA[0-9A-Z]{8,}\b")
+_HEX = re.compile(r"\b[0-9a-fA-F]{32,}\b")          # token/cle haute entropie (hex long)
+_LONG_DIGITS = re.compile(r"\b\d{7,}\b")            # tel / carte / id long
+
+# (motif, raison) pour les intentions d'attaque. Bornes de mot -> pas de faux positif substring.
+_ATTACK: List[Tuple[re.Pattern, str]] = [
+    (re.compile(r"\bbrute[\s-]?force\b", re.IGNORECASE), "attack:brute_force"),
+    (re.compile(r"\bcredential\s+stuffing\b", re.IGNORECASE), "attack:credential_stuffing"),
+    (re.compile(r"\bbypass\b", re.IGNORECASE), "attack:bypass"),
+    (re.compile(r"\bexploit\b", re.IGNORECASE), "attack:exploit"),
+    (re.compile(r"\bexfiltrat(?:e|ion)\b", re.IGNORECASE), "attack:exfiltration"),
+]
+
+_REGEX_DETECTORS: List[Tuple[re.Pattern, str]] = [
+    (_EMAIL, "pii:email"),
+    (_SK, "secret:sk_prefix"),
+    (_PPLX, "secret:pplx_prefix"),
+    (_AKIA, "secret:akia_prefix"),
+    (_HEX, "secret:high_entropy_hex"),
+    (_LONG_DIGITS, "pii:long_digits"),
+]
+
+
+@dataclass(frozen=True)
+class SensitivityVerdict:
+    sensitive: bool
+    reasons: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class RoutingDecision:
+    route: Literal["local", "cloud"]
+    reason: str
+    sensitivity: SensitivityVerdict
+
+
+def classify(text: str) -> SensitivityVerdict:
+    """Verdict de sensibilite a RAISONS granulaires. PUR, conservateur, accent-insensible.
+    Union : detecteurs regex (secrets/PII/attaque) + marqueurs FR observes (`marker:<m>`)."""
+    if not text or not text.strip():
+        return SensitivityVerdict(False, ())
+    reasons: List[str] = []
+    for pat, label in _REGEX_DETECTORS:
+        if pat.search(text):
+            reasons.append(label)
+    for pat, label in _ATTACK:
+        if pat.search(text):
+            reasons.append(label)
+    low = _norm(text)
+    for m in SENSITIVE_MARKERS:
+        if m in low:
+            reasons.append(f"marker:{m}")
+    # dedup en preservant l'ordre.
+    seen: set = set()
+    uniq = tuple(r for r in reasons if not (r in seen or seen.add(r)))
+    return SensitivityVerdict(bool(uniq), uniq)
+
+
+def decide(text: str, cloud_ok: bool, has_cloud: bool) -> RoutingDecision:
+    """Decision de routage PURE. Regle verrouillee :
+    default local ; cloud SEULEMENT si cloud_ok ET has_cloud ET non sensible ; dans le doute -> local."""
+    verdict = classify(text)
+    if not text or not text.strip():
+        return RoutingDecision("local", "empty_input", verdict)
+    if verdict.sensitive:
+        return RoutingDecision("local", "sensitive_input", verdict)
+    if not cloud_ok:
+        return RoutingDecision("local", "cloud_not_authorized", verdict)
+    if not has_cloud:
+        return RoutingDecision("local", "no_cloud_backend", verdict)
+    return RoutingDecision("cloud", "cloud_authorized_and_clean", verdict)
