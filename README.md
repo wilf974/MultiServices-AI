@@ -358,6 +358,9 @@ Configuration lives in `multiservice/config.py` and is overridable via environme
 
 ## Using it from an MCP client
 
+> **Plug any LLM in.** Full connection guide — MCP / REST / files, read + supervised write, tools,
+> provenance rules, writeback policy, modes — in **[`docs/INTEGRATION.md`](docs/INTEGRATION.md)**.
+
 Run the read-only memory server:
 
 ```bash

@@ -371,6 +371,10 @@ La configuration est dans `multiservice/config.py`, surchargeable par variables 
 
 ## Utilisation depuis un client MCP
 
+> **Brancher n'importe quel LLM.** Guide de connexion complet — MCP / REST / fichiers, lecture +
+> écriture supervisée, outils, règles de provenance, politique d'écriture, modes — dans
+> **[`docs/INTEGRATION.md`](docs/INTEGRATION.md)**.
+
 Lancer le serveur de mémoire en lecture seule :
 
 ```bash

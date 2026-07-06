@@ -6,7 +6,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Versioning: [SemVer](ht
 
 ## [Unreleased]
 
-- Nothing yet.
+### Added
+
+- **Integration guide** (`docs/INTEGRATION.md`) — how any LLM (Claude / ChatGPT / local Ollama) or a
+  human plugs into the memory: MCP / REST / files connectors, the read tools, supervised write
+  (source imposed by cert; secret / template / duplicate guards), provenance and writeback rules, the
+  three modes, and error semantics.
 
 ## [0.2.0] — 2026-07-06
 
