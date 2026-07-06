@@ -140,6 +140,16 @@ def classify(text: str) -> SensitivityVerdict:
     return SensitivityVerdict(bool(uniq), uniq)
 
 
+def contains_secret(text: str) -> bool:
+    """Vrai si le texte contient un SECRET STRUCTURE a haute confiance (valeur de cle/jeton :
+    prefixes sk-/pplx-/AKIA, hex haute entropie). CONSERVATEUR : on ne bloque QUE les valeurs de
+    credential reconnaissables — jamais les simples MENTIONS ('token', 'secret', 'mot de passe'),
+    ni IP / email / UUID — pour ne pas casser le journal legitime. Sert la garde d'ECRITURE : un
+    secret dans un journal append-only est INEFFACABLE (le supersede masque, ne detruit pas). PUR.
+    Elargir seulement sur une fuite OBSERVEE au reel (discipline BITS), jamais a l'aveugle."""
+    return any(r.startswith("secret:") for r in classify(text).reasons)
+
+
 def decide(text: str, cloud_ok: bool, has_cloud: bool) -> RoutingDecision:
     """Decision de routage PURE. Regle verrouillee :
     default local ; cloud SEULEMENT si cloud_ok ET has_cloud ET non sensible ; dans le doute -> local."""

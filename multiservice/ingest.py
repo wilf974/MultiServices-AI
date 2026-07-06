@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 from . import projlog
 from .hygiene import looks_like_placeholder
 from .journal import append_events, read_events
+from .policy import contains_secret
 
 
 def find_live_duplicate(events, source: str, kind: str, text: str,
@@ -120,6 +121,11 @@ def ingest(payload: Dict[str, Any], cn: str, signature: str, body: bytes,
     if looks_like_placeholder(text) and not bool(payload.get("force")):
         return {"status": 422,
                 "error": "placeholder text (gabarit non rempli ; force=true pour outrepasser)"}
+    # Garde anti-secret (kit LLM universel) : une VALEUR de cle/jeton ne doit JAMAIS entrer dans un
+    # journal append-only (ineffacable ; le supersede masque, ne detruit pas). force = contournement C1.
+    if contains_secret(text) and not bool(payload.get("force")):
+        return {"status": 422,
+                "error": "secret detecte (cle/jeton ; force=true pour outrepasser en connaissance de cause)"}
     # Curation Phase 2 : closes/rejects valides si presents (listes d'ids non vides).
     # closes = cloture C3 ciblee -> exige kind=correction (sinon inerte cote lecture).
     extra = payload.get("data")

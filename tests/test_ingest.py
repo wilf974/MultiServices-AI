@@ -108,6 +108,38 @@ def test_placeholder_force_true_passe(tmp_path):
     assert len(read_events(str(jp))) == 1
 
 
+def test_secret_rejete_422(tmp_path):
+    """Garde anti-secret (kit LLM universel) : une VALEUR de cle/jeton est refusee AVANT append.
+    Un secret dans un journal append-only est ineffacable -> on ne l'ecrit jamais."""
+    jp = tmp_path / "j.jsonl"
+    p = _payload(text="ma cle est sk-ABCDEF0123456789")
+    body = json.dumps(p).encode()
+    r = ing.ingest(p, "bureau", _sign(body), body, REG, str(jp),
+                   ing.NonceStore(tmp_path / "n"), now=NOW)
+    assert r["status"] == 422 and "secret" in r["error"]
+    assert not jp.exists() or read_events(str(jp)) == []
+
+
+def test_secret_force_true_passe(tmp_path):
+    """Contournement VOLONTAIRE (C1) : force=true dans le corps signe -> 201 (l'humain assume)."""
+    jp = tmp_path / "j.jsonl"
+    p = _payload(text="rotation effectuee de sk-ABCDEF0123456789", force=True)
+    body = json.dumps(p).encode()
+    r = ing.ingest(p, "bureau", _sign(body), body, REG, str(jp),
+                   ing.NonceStore(tmp_path / "n"), now=NOW)
+    assert r["status"] == 201
+
+
+def test_mention_et_ip_ne_bloquent_pas(tmp_path):
+    """Conservateur : une mention ('anti-secret', 'token JWT') ou une IP legitime passe (201)."""
+    jp = tmp_path / "j.jsonl"
+    p = _payload(text="garde anti-secret livree ; deploiement VPS <VPS_LAN>")
+    body = json.dumps(p).encode()
+    r = ing.ingest(p, "bureau", _sign(body), body, REG, str(jp),
+                   ing.NonceStore(tmp_path / "n"), now=NOW)
+    assert r["status"] == 201
+
+
 def test_closes_valide_passe_et_atterrit_dans_l_event(tmp_path):
     """Curation Phase 2 : une cloture ciblee signee (kind=correction) -> 201, data.closes pose."""
     jp = tmp_path / "j.jsonl"

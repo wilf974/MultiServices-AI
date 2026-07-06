@@ -90,6 +90,19 @@ def test_main_refuse_le_gabarit_non_rempli(monkeypatch, capsys):
     assert "gabarit" in capsys.readouterr().out
 
 
+def test_main_refuse_un_secret(monkeypatch, capsys):
+    """Garde anti-secret cote client : refus AVANT le reseau (exit 2), une cle n'est jamais envoyee."""
+    monkeypatch.setenv("MEM_INGEST_URL", "https://mem.example/ingest")
+    monkeypatch.setenv("MEM_HMAC_KEY", KEY)
+    monkeypatch.setenv("MEM_CLIENT_CERT", "c.pem")
+    monkeypatch.setenv("MEM_CLIENT_KEY", "k.pem")
+    monkeypatch.setattr("sys.argv", ["memlog-http", "ma cle sk-ABCDEF0123456789", "--kind", "note"])
+    with pytest.raises(SystemExit) as ei:
+        memlog_http.main()
+    assert ei.value.code == 2
+    assert "secret" in capsys.readouterr().out
+
+
 def test_build_request_porte_force_seulement_si_demande():
     """--force voyage DANS le corps signe (le serveur le lit) ; absent par defaut (compat)."""
     body, _ = build_request("<FAIT>", "note", "s", KEY, force=True)

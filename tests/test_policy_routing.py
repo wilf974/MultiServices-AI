@@ -6,8 +6,26 @@ Contrat verrouille (spec utilisateur) :
   is_sensitive (bool, retro-compat) == classify(text).sensitive (source unique).
 """
 from multiservice.policy import (
-    SensitivityVerdict, RoutingDecision, classify, decide, is_sensitive,
+    SensitivityVerdict, RoutingDecision, classify, decide, is_sensitive, contains_secret,
 )
+
+
+# --- contains_secret() : garde d'ecriture (bloque les VALEURS de credential, pas les mentions) ---
+
+def test_contains_secret_bloque_les_valeurs_de_cle():
+    assert contains_secret("ma cle sk-ABCDEF0123456789") is True
+    assert contains_secret("pplx-0123456789abcdef en prod") is True
+    assert contains_secret("AKIA0123456789ABCD (aws)") is True
+    assert contains_secret("token 0123456789abcdef0123456789abcdef") is True   # hex haute entropie
+
+
+def test_contains_secret_laisse_passer_mentions_ip_uuid_email():
+    # conservateur : le journal legitime (mentions, IP VPS, UUID d'event, email) ne doit PAS etre bloque
+    assert contains_secret("garde anti-secret livree ; on parle de token JWT") is False
+    assert contains_secret("deploiement sur le VPS <VPS_LAN> valide") is False
+    assert contains_secret("correction 2c0711ec-87c4-447f-afbc-2cfdb2b83511 posee") is False
+    assert contains_secret("contacter jean.dupont@example.com") is False
+    assert contains_secret("") is False
 
 
 # --- decide() : la regle de routage ---

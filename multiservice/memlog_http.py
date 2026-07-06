@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 from .hygiene import looks_like_placeholder
+from .policy import contains_secret
 
 
 def build_request(text: str, kind: str, session: str, hmac_key: str,
@@ -52,6 +53,10 @@ def main() -> None:
     # peut passer outre en connaissance de cause (--force, esprit C1).
     if not a.force and looks_like_placeholder(a.text):
         print("[memlog-http] REFUS : texte de gabarit non rempli (--force pour passer outre)")
+        raise SystemExit(2)
+    # Garde anti-secret : ne JAMAIS envoyer une valeur de cle/jeton au journal (ineffacable).
+    if not a.force and contains_secret(a.text):
+        print("[memlog-http] REFUS : secret detecte (cle/jeton ; --force pour passer outre)")
         raise SystemExit(2)
 
     data = {}
