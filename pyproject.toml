@@ -40,3 +40,11 @@ packages = ["multiservice"]
 
 [tool.setuptools.dynamic]
 version = { attr = "multiservice.__version__" }
+
+# La suite du PROJET vit dans tests/ ; reference/ (copie compagnon AetherCore) a ses propres
+# tests non collectables ici (ModuleNotFoundError + collision test_sync.py, observe 02/07/2026).
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# defauts pytest conserves (".*" couvre .git/.venv/.superpowers) + exclusions projet
+norecursedirs = [".*", "build", "dist", "venv", "node_modules", "*.egg",
+                 "reference", "examples", "video"]
