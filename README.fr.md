@@ -509,13 +509,19 @@ devient un test.
 - ✅ **Écriture distante authentifiée (ingest)** — livrée : mTLS + HMAC + anti-rejeu, client `memlog-http`.
 - ✅ **API REST web pour les LLM web** — livrée : FastAPI publique authentifiée par token
   (recall/remember/recent + OpenAPI), prête pour les Custom GPT. Voir [`deploy/`](deploy/).
+- ✅ **Revue de projet (rôle Synthèse)** — livrée : `project_review(project)` reconstruit l'état
+  bi-temporel d'un projet (décisions valides vs corrigées avec le *pourquoi*, hypothèses, validations, leçons).
+- ✅ **Garde anti-secret à l'écriture** — livrée : le chemin d'écriture refuse les valeurs de credential
+  (un secret dans un journal append-only est ineffaçable) ; `--force` outrepasse (humain, C1).
+- ✅ **Guide d'intégration** — livré : [`docs/INTEGRATION.md`](docs/INTEGRATION.md) — brancher n'importe
+  quel LLM (MCP / REST / fichiers, lecture + écriture supervisée).
 
 ### À venir
 
-- **Chiffrement au repos** du journal local.
-- **Passage à l'échelle** pour de très gros journaux au long cours — stockage indexé / paginé (back-end graphe optionnel).
+- **Chiffrement au repos** du journal local (append-only + chiffrement — un chantier délibéré).
 - **Durcissement multi-nœuds** — révocation de certificat par client et rate-limiting.
-- **Auto-curation enrichie** — calibrage du comparateur LLM et briefs de synthèse par projet automatiques.
+- **Passage à l'échelle** pour de très gros journaux au long cours — stockage indexé / paginé (back-end graphe optionnel).
+- **Calibrage du comparateur** — honorer les rejets, ignorer les variantes versionnées / de lieu distinct.
 
 ---
 

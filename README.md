@@ -494,13 +494,19 @@ real usage becomes a test.
 - ✅ **Authenticated remote write (ingest)** — shipped: mTLS + HMAC + anti-replay, `memlog-http` client.
 - ✅ **Web REST API for web LLMs** — shipped: public, token-authenticated FastAPI (recall/remember/recent
   + OpenAPI), Custom GPT-ready. See [`deploy/`](deploy/).
+- ✅ **Project review (Synthesis role)** — shipped: `project_review(project)` reconstructs a project's
+  bi-temporal state (valid vs corrected decisions with the *why*, hypotheses, validations, lessons).
+- ✅ **Secret guard at write** — shipped: the write path refuses credential values (a secret in an
+  append-only journal is unerasable); `--force` bypasses (human, C1).
+- ✅ **Integration guide** — shipped: [`docs/INTEGRATION.md`](docs/INTEGRATION.md) — plug any LLM in
+  (MCP / REST / files, read + supervised write).
 
 ### On the roadmap
 
-- **At-rest encryption** of the local journal.
-- **Scaling** to very large, long-lived journals — indexed / paginated storage (optional graph back-end).
+- **At-rest encryption** of the local journal (append-only + encryption — a deliberate effort).
 - **Multi-node hardening** — per-client certificate revocation and rate-limiting.
-- **Richer self-curation** — LLM-comparator calibration and automated per-project synthesis briefs.
+- **Scaling** to very large, long-lived journals — indexed / paginated storage (optional graph back-end).
+- **Comparator calibration** — honor rejects, ignore versioned / distinct-location variants.
 
 ---
 
