@@ -649,6 +649,22 @@ def project_review(events: List[AetherEvent], project: str, days: Optional[int] 
     }
 
 
+def health(events: List[AetherEvent]) -> Dict[str, Any]:
+    """Sante du substrat memoire (kit LLM universel), LECTURE SEULE, PURE. On a pu lire -> disponible ;
+    on renvoie le nombre d'evenements, la date du dernier, le nombre de sources distinctes. Sert la
+    REPRISE (health -> recent -> recall) sans rien deviner. La latence/reseau releve du connecteur."""
+    last: Optional[datetime] = None
+    sources: set = set()
+    for e in events:
+        vf = _aware(e.valid_from)
+        if vf and (last is None or vf > last):
+            last = vf
+        if e.source:
+            sources.add(e.source)
+    return {"available": True, "event_count": len(events),
+            "last_event_at": last.isoformat() if last else None, "sources": len(sources)}
+
+
 def reuse_stats(events: List[AetherEvent], as_of: Optional[datetime] = None) -> Dict[str, Any]:
     """Instrumentation LECTURE SEULE : combien de tours ont ete SERVIS depuis la memoire (cache,
     sans rappeler le modele) et combien de tokens d'entree epargnes. Mesure la reutilisation/valeur
