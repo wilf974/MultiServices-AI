@@ -22,7 +22,7 @@ Vérifier dans le Claude CLI : `/mcp` -> `multiservice-memory connected` (12 out
 ```bash
 ssh -p <SSH_PORT> <user>@mem.example.com        # ou <user>@<VPS_LAN> depuis le LAN
 NOM=monposte                                # CN unique du poste -> source=project:$NOM
-cd /home/<user>/mem-mcp-src
+cd /home/<user>/mem-mcp-main              # dossier canonique du stack memoire (depuis 06/07 ; l'ancien mem-mcp-src est vestigial)
 sudo bash deploy/gen-mtls.sh "$NOM" "project:$NOM"
 HMAC=$(sudo cat /home/<user>/mem-secrets/clients/$NOM/hmac.key)
 # inscrire au registre (cree ou met a jour le JSON) :
@@ -45,10 +45,28 @@ rm /home/<user>/client.crt /home/<user>/client.key /home/<user>/hmac.key
 ---
 
 ## 3. Écriture — installer le client
+
+**Toujours depuis `@main`** — les correctifs y sont mergés. Ne JAMAIS installer depuis une branche
+`feature/*` (périmée). `httpx` (dont dépend `memlog-http`) vit dans l'extra **`[ingest]`**, pas dans
+les deps de base — d'où l'extra au premier install.
+
+**Poste neuf** (pas encore `httpx`) — garder l'extra, **sans** `--no-deps` :
 ```
-pip install "multiservice-ia[ingest] @ git+https://github.com/wilf974/MultiServices-AI.git"
+pip install "multiservice-ia[ingest] @ git+https://github.com/wilf974/MultiServices-AI.git@main"
 ```
-(Nom du paquet = `multiservice-ia`, PAS `multiservice`. Pour mettre à jour : ajouter `--force-reinstall --no-deps`.)
+
+**Mettre à jour** un client existant (a déjà `httpx`) — `--no-deps` évite les conflits de deps (numpy) :
+```
+pip install --force-reinstall --no-deps "multiservice-ia @ git+https://github.com/wilf974/MultiServices-AI.git@main"
+```
+
+**Poste qui a le repo en local** (dev) — **éditable**, suit `main` en continu (plus jamais de réinstall) :
+```
+pip install -e "<chemin-du-repo>" --no-deps
+```
+
+(Nom du paquet = `multiservice-ia`, PAS `multiservice`. Piège : `[ingest]` + `--no-deps` s'annulent —
+l'extra n'a d'effet que SANS `--no-deps`, donc réservé au premier install.)
 
 ---
 
@@ -69,7 +87,7 @@ Réponse attendue : `201 {"id":...,"source":"project:<NOM>"}` (la source est imp
 
 **Conventions** : `decision`=choix · `correction`=revirement (MÊME `--session` -> péremption C3) · `observation`=fait terrain · `validation`=vérif OK. `--session`=sujet stable. Texte autoportant, ASCII de préférence.
 
-**Garde anti-gabarit (01/07/2026)** : un texte de gabarit non rempli (ex. `<FAIT>`, `<le fait, texte reel>` — comme dans les exemples ci-dessus !) est **refusé** : exit 2 côté client, `422 placeholder text` côté serveur. Contournement volontaire : `--force` (voyage dans le corps signé). Pollution observée au journal → `multiservice/hygiene.py`.
+**Garde anti-gabarit (01/07, durcie 06/07/2026)** : un texte de gabarit non rempli (ex. `<FAIT>`, `<le fait, texte reel>` — comme dans les exemples ci-dessus !) est **refusé** : exit 2 côté client, `422 placeholder text` côté serveur. Contournement volontaire : `--force` (voyage dans le corps signé). **Durcissement 06/07** : un vrai doc qui *documente* des exemples `<...>` (comme CE runbook) n'est **plus** faussement refusé — seuls un texte court ou un texte **dominé** par les `<...>` (≥ 50 %) le sont. Pollution observée au journal → `multiservice/hygiene.py`.
 
 **Codes** : `201` OK · `401` signature/cert · `403` mTLS/IP non allowlistée · `409` rejeu · `422` format ou gabarit non rempli.
 
