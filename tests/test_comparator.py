@@ -78,6 +78,37 @@ def test_judge_pair_prompt_contient_les_deux_textes():
     assert "AAA_texte" in blob and "BBB_texte" in blob
 
 
+class FlakyBackend:
+    """Echoue les `fail` premiers appels (erreur transitoire), puis renvoie `text`."""
+    model_id = "m"
+
+    def __init__(self, fail, text):
+        self.calls = 0
+        self.fail = fail
+        self.text = text
+
+    def chat(self, messages, on_token=None, tools=None):
+        self.calls += 1
+        if self.calls <= self.fail:
+            raise RuntimeError("ollama transitoire")
+        return Completion(self.text, self.model_id, 1, 1)
+
+
+def test_judge_pair_retente_sur_erreur_transitoire():
+    be = FlakyBackend(1, _v("equivalent", "a"))       # echoue 1x puis OK
+    v = comparator.judge_pair(be, "x", "y", "note")
+    assert v.relation == "equivalent" and be.calls == 2
+
+
+def test_judge_pair_abandon_si_backend_echoue_toujours():
+    class Always:
+        model_id = "m"
+        def chat(self, *a, **k):
+            raise RuntimeError("down")
+    v = comparator.judge_pair(Always(), "x", "y", "note")
+    assert v.relation == "uncertain"
+
+
 # --- review_candidates ---
 
 def test_review_equivalent_produit_une_consolidation():

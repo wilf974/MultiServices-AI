@@ -51,21 +51,26 @@ def _parse(text: str) -> Optional[dict]:
     return d if isinstance(d, dict) else None
 
 
-def judge_pair(backend, a_text: str, b_text: str, kind: str) -> Verdict:
+def judge_pair(backend, a_text: str, b_text: str, kind: str, retries: int = 2) -> Verdict:
     """Verdict LLM sur une paire (`backend.chat(messages) -> Completion`). Robuste : toute
-    erreur / JSON illisible / relation inconnue -> `uncertain` (jamais de proposition a l'aveugle)."""
-    try:
-        c = backend.chat(_build_messages(a_text, b_text, kind))
+    erreur / JSON illisible / relation inconnue -> `uncertain` (jamais de proposition a l'aveugle).
+    Retente `retries` fois sur ERREUR backend (Ollama local transitoire sous charge) ; un JSON
+    illisible n'est PAS retente (temperature 0 -> deterministe, ce serait le meme resultat)."""
+    msgs = _build_messages(a_text, b_text, kind)
+    for _ in range(retries + 1):
+        try:
+            c = backend.chat(msgs)
+        except Exception:
+            continue                                     # transitoire -> on retente
         d = _parse(getattr(c, "text", "") or "")
-    except Exception:
-        return Verdict("uncertain", None, "backend error")
-    if not d or d.get("relation") not in _RELATIONS:
-        return Verdict("uncertain", None, "verdict illisible")
-    rel = d["relation"]
-    keep = d.get("keep") if rel == "equivalent" else None
-    if keep not in ("a", "b"):
-        keep = None
-    return Verdict(rel, keep, str(d.get("rationale", ""))[:300])
+        if not d or d.get("relation") not in _RELATIONS:
+            return Verdict("uncertain", None, "verdict illisible")
+        rel = d["relation"]
+        keep = d.get("keep") if rel == "equivalent" else None
+        if keep not in ("a", "b"):
+            keep = None
+        return Verdict(rel, keep, str(d.get("rationale", ""))[:300])
+    return Verdict("uncertain", None, "backend error (apres retries)")
 
 
 def _older(events: List[dict]) -> dict:
