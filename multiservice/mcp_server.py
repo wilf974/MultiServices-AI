@@ -110,6 +110,16 @@ def build_server(journal_path: str = None):
                                       k=k, standing_k=standing_k)
 
     @srv.tool()
+    def project_review(project: str, days: int = 0, k: int = 20) -> dict:
+        """Vue COMPOSEE de revue d'un PROJET (par source), bi-temporelle, lecture seule.
+        Reconstruit l'etat depuis la seule memoire : decisions valides / corrigees (C3),
+        hypotheses refutees / debout, validations, lecons — chacune sourcee, datee, avec son
+        `corrected_by` (le « pourquoi ca a change »). `days=0` = tout l'historique (sinon N
+        derniers jours). Sortie bornee (k), `counts` complet, `truncated` signale la coupe."""
+        return memory.project_review(read_events(jp), project,
+                                     days=(days or None), k=k)
+
+    @srv.tool()
     def curation(source: str = "", k: int = 20, older_than_days: int = 30) -> dict:
         """Rapport de CURATION de la memoire (lecture seule, Phase 1) : doublons exacts et
         proches, gabarits non remplis encore valides, decisions anciennes non revisitees,

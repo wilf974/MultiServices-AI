@@ -541,6 +541,77 @@ def lessons_learned(events: List[AetherEvent], as_of: Optional[datetime] = None,
     }
 
 
+def project_review(events: List[AetherEvent], project: str, days: Optional[int] = None,
+                   now: Optional[datetime] = None, k: Optional[int] = 20) -> Dict[str, Any]:
+    """Vue composee de revue de PROJET (par `source`), bi-temporelle, LECTURE SEULE, PURE.
+
+    Reconstruit l'etat d'un projet depuis la SEULE memoire : decisions encore valides /
+    corrigees (C3), hypotheses refutees / debout, validations, lecons. Compose l'existant
+    (`lessons_learned` pour les decisions debout + les lecons) et le complete par les faits
+    corriges/refutes (leur `corrected_by` = le « pourquoi ca a change »). Ne juge pas : signaux
+    dates et sources, l'humain tranche. `days` = activite des N derniers jours (None = tout).
+    Sortie bornee (economie de sortie) : `counts` COMPLET, `truncated` signale la coupe."""
+    asof = _aware(now) or datetime.now(timezone.utc)
+    floor = datetime.min.replace(tzinfo=timezone.utc)
+    kk = None if k is None else max(0, k)
+    pool = events
+    if days is not None:
+        cutoff = asof - timedelta(days=days)
+        pool = [e for e in events if (_aware(e.valid_from) or floor) >= cutoff]
+
+    corr_idx = _corrections_index(pool)
+    closes_idx = _closes_index(pool, as_of=asof)
+
+    def valid(e: AetherEvent) -> bool:
+        vf = _aware(e.valid_from)
+        if vf and vf > asof:
+            return False
+        vt = _aware(e.valid_to)
+        return not (vt and vt < asof)
+
+    def corrected_by(e: AetherEvent) -> List[str]:      # corrections session+temps + clotures ciblees
+        return (_superseded_by(corr_idx, e.data.get("session_id"), _aware(e.valid_from))
+                + _closed_by(closes_idx, e.id))
+
+    def brief(e: AetherEvent, extra: Optional[dict] = None) -> Dict[str, Any]:
+        vf = _aware(e.valid_from)
+        d = {"id": e.id, "type": e.type.value, "session": e.data.get("session_id"),
+             "valid_from": vf.isoformat() if vf else None, "text": _text(e)[:200]}
+        if extra:
+            d.update(extra)
+        return d
+
+    def by_recent(items):
+        return sorted(items, key=lambda e: _aware(e.valid_from) or floor, reverse=True)
+
+    # Decisions DEBOUT + lecons : on reutilise lessons_learned (deja teste, memes bornes).
+    ll = lessons_learned(pool, as_of=asof, source_prefix=project, k=kk, standing_k=kk)
+
+    mine = [e for e in pool if _source_matches(e.source, project)]
+    dec_corr = by_recent([e for e in mine if e.type == EventType.DECISION and corrected_by(e)])
+    hyp = [e for e in mine if e.type == EventType.HYPOTHESIS]
+    hyp_ref = by_recent([e for e in hyp if corrected_by(e)])
+    hyp_std = by_recent([e for e in hyp if valid(e) and not corrected_by(e)])
+    vals = by_recent([e for e in mine if e.type == EventType.VALIDATION and valid(e)])
+
+    counts = {"decisions_valides": ll["counts"]["still_standing"],
+              "decisions_corrigees": len(dec_corr), "hypotheses_refutees": len(hyp_ref),
+              "hypotheses_debout": len(hyp_std), "validations": len(vals),
+              "lecons": ll["counts"]["lessons"]}
+    truncated = bool(ll["truncated"] or (kk is not None and any(
+        n > kk for n in (len(dec_corr), len(hyp_ref), len(hyp_std), len(vals)))))
+    return {
+        "project": project, "as_of": asof.isoformat(), "params": {"days": days, "k": k},
+        "counts": counts, "truncated": truncated,
+        "decisions_valides": ll["still_standing"],
+        "decisions_corrigees": [brief(e, {"corrected_by": corrected_by(e)}) for e in dec_corr][:kk],
+        "hypotheses_refutees": [brief(e, {"corrected_by": corrected_by(e)}) for e in hyp_ref][:kk],
+        "hypotheses_debout": [brief(e) for e in hyp_std][:kk],
+        "validations": [brief(e) for e in vals][:kk],
+        "lecons": ll["lessons"],
+    }
+
+
 def reuse_stats(events: List[AetherEvent], as_of: Optional[datetime] = None) -> Dict[str, Any]:
     """Instrumentation LECTURE SEULE : combien de tours ont ete SERVIS depuis la memoire (cache,
     sans rappeler le modele) et combien de tokens d'entree epargnes. Mesure la reutilisation/valeur
