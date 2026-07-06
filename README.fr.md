@@ -203,6 +203,7 @@ vers un client compatible). Tous les résultats portent leur provenance et un dr
 | `reasoning(session_id)` | **fil de raisonnement** d'une session : hypothèse → observation → décision → correction → validation, ordonné, avec **étapes présentes/manquantes** (ex. décision sans validation) |
 | `lessons()` | **Leçons** tirées des corrections C3 : ce qui a été révisé/abandonné + les vérités qui tiennent encore. Vide tant qu'aucune correction n'est journalisée. |
 | `curation(source, …)` | **Rapport de santé** (lecture seule) : doublons exacts/quasi, gabarits non remplis, décisions périmées, contradictions candidates — chacun avec ses preuves et des propositions de clôture prêtes (`pending_human`). |
+| `project_review(project, …)` | **Revue composée d'un projet** (lecture seule) : reconstruit l'état d'un projet depuis la seule mémoire — décisions valides vs corrigées (avec le *pourquoi*), hypothèses réfutées / debout, validations, leçons. Bornée, bi-temporelle. |
 | `index_status()` | Fraîcheur de l'index sémantique (`eligible` / `indexed` / `fresh`). Indique quand le recall sémantique est partiel. |
 | `usage()` | **Instrumentation** de réutilisation : combien de tours servis depuis la mémoire (cache, sans modèle) et tokens épargnés. Mesure, ne prédit pas. |
 | ressource `briefing/today` | Briefing d'usage du jour (tokens, économie de compaction, par modèle). |
