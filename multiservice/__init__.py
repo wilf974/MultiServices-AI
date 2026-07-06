@@ -5,4 +5,4 @@ Sprint 13 : CAPTURE SEULE. On fait entrer le flux LLM dans le journal
 date, source, bi-temporel. Pas de recall, pas de cache, pas de detecteur.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
