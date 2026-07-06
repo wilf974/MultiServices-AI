@@ -12,7 +12,28 @@ from typing import Any, Dict, Optional
 
 from . import projlog
 from .hygiene import looks_like_placeholder
-from .journal import append_events
+from .journal import append_events, read_events
+
+
+def find_live_duplicate(events, source: str, kind: str, text: str,
+                        now: datetime) -> Optional[str]:
+    """Id d'un fait VIVANT (non clos C3) de meme source+kind au texte normalise
+    identique, sinon None. Meme normalisation que le detecteur de doublons exacts
+    (curator) : si le detecteur le flaggerait, l'ingest le previent a la source. PUR.
+    Scope a la source (imposee par le CN) : un client ne dedoublonne que ses propres faits."""
+    from . import curator                              # import tardif (evite tout cycle a l'import)
+    norm = curator._norm(text).strip()
+    if not norm:
+        return None
+    closes_idx = curator._closes_index(events, as_of=now)
+    for e in events:
+        if e.source != source or e.type.value != kind:
+            continue
+        if not curator._valid_at(e, now) or curator._closed_by(closes_idx, e.id):
+            continue
+        if curator._norm(curator._text(e)).strip() == norm:
+            return e.id
+    return None
 
 
 def verify_hmac(body: bytes, signature: str, key: str) -> bool:
@@ -115,6 +136,14 @@ def ingest(payload: Dict[str, Any], cn: str, signature: str, body: bytes,
             return {"status": 422, "error": "closes exige kind=correction (cloture C3)"}
     source = client["source"]                       # C2 IMPOSEE (on ignore payload.source)
     session = payload.get("session") or "ingest"
+    # Garde de dedup (cause racine des doublons : agent re-journalisant ses invariants).
+    # Un fait VIVANT identique (source+kind+texte) n'est pas re-appende ; force=true outrepasse (C1).
+    if not bool(payload.get("force")):
+        dup = find_live_duplicate(read_events(journal_path), source, kind, text, now)
+        if dup:
+            nonce_store.add(nonce, payload["ts"])   # nonce consomme (idempotent), mais rien appende
+            nonce_store.prune(now, window_s)
+            return {"status": 200, "id": dup, "duplicate": True, "source": source}
     try:
         ev = projlog.make_event(kind, text, source=source, session_id=session, now=now)
     except ValueError as e:
