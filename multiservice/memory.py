@@ -546,11 +546,13 @@ def project_review(events: List[AetherEvent], project: str, days: Optional[int] 
     """Vue composee de revue de PROJET (par `source`), bi-temporelle, LECTURE SEULE, PURE.
 
     Reconstruit l'etat d'un projet depuis la SEULE memoire : decisions encore valides /
-    corrigees (C3), hypotheses refutees / debout, validations, lecons. Compose l'existant
-    (`lessons_learned` pour les decisions debout + les lecons) et le complete par les faits
-    corriges/refutes (leur `corrected_by` = le « pourquoi ca a change »). Ne juge pas : signaux
-    dates et sources, l'humain tranche. `days` = activite des N derniers jours (None = tout).
-    Sortie bornee (economie de sortie) : `counts` COMPLET, `truncated` signale la coupe."""
+    corrigees (C3), hypotheses refutees / debout, validations, lecons. Signal de correction
+    RAFFINE (calibrage 06/07) : une correction supersede le SEUL fait immediatement anterieur de
+    sa session (+ clotures ciblees `data.closes` / `valid_to`), pas TOUS les faits de la session —
+    ce qui evite l'inflation observee. `corrected_by` = le « pourquoi ca a change ». Les `lecons`
+    reutilisent `lessons_learned` (vue « pourquoi », signal large). Ne juge pas : signaux dates et
+    sources, l'humain tranche. `days` = activite des N derniers jours (None = tout). Sortie bornee
+    (economie de sortie) : `counts` COMPLET, `truncated` signale la coupe."""
     asof = _aware(now) or datetime.now(timezone.utc)
     floor = datetime.min.replace(tzinfo=timezone.utc)
     kk = None if k is None else max(0, k)
@@ -559,7 +561,6 @@ def project_review(events: List[AetherEvent], project: str, days: Optional[int] 
         cutoff = asof - timedelta(days=days)
         pool = [e for e in events if (_aware(e.valid_from) or floor) >= cutoff]
 
-    corr_idx = _corrections_index(pool)
     closes_idx = _closes_index(pool, as_of=asof)
 
     def valid(e: AetherEvent) -> bool:
@@ -568,10 +569,6 @@ def project_review(events: List[AetherEvent], project: str, days: Optional[int] 
             return False
         vt = _aware(e.valid_to)
         return not (vt and vt < asof)
-
-    def corrected_by(e: AetherEvent) -> List[str]:      # corrections session+temps + clotures ciblees
-        return (_superseded_by(corr_idx, e.data.get("session_id"), _aware(e.valid_from))
-                + _closed_by(closes_idx, e.id))
 
     def brief(e: AetherEvent, extra: Optional[dict] = None) -> Dict[str, Any]:
         vf = _aware(e.valid_from)
@@ -584,26 +581,66 @@ def project_review(events: List[AetherEvent], project: str, days: Optional[int] 
     def by_recent(items):
         return sorted(items, key=lambda e: _aware(e.valid_from) or floor, reverse=True)
 
-    # Decisions DEBOUT + lecons : on reutilise lessons_learned (deja teste, memes bornes).
-    ll = lessons_learned(pool, as_of=asof, source_prefix=project, k=kk, standing_k=kk)
-
     mine = [e for e in pool if _source_matches(e.source, project)]
-    dec_corr = by_recent([e for e in mine if e.type == EventType.DECISION and corrected_by(e)])
-    hyp = [e for e in mine if e.type == EventType.HYPOTHESIS]
-    hyp_ref = by_recent([e for e in hyp if corrected_by(e)])
-    hyp_std = by_recent([e for e in hyp if valid(e) and not corrected_by(e)])
-    vals = by_recent([e for e in mine if e.type == EventType.VALIDATION and valid(e)])
 
-    counts = {"decisions_valides": ll["counts"]["still_standing"],
-              "decisions_corrigees": len(dec_corr), "hypotheses_refutees": len(hyp_ref),
-              "hypotheses_debout": len(hyp_std), "validations": len(vals),
-              "lecons": ll["counts"]["lessons"]}
+    # --- Correction RAFFINEE (calibrage 06/07) : une correction (valide a asof) supersede le SEUL
+    # fait IMMEDIATEMENT anterieur de SA session (le « dernier etat dit »), pas TOUS les faits.
+    # Corrige l'inflation observee (bureau : session dense en decisions + 1 correction tardive
+    # flaguait TOUT). Les clotures ciblees (data.closes) et valid_to restent precises.
+    _FACT = {EventType.DECISION, EventType.HYPOTHESIS, EventType.NOTE,
+             EventType.OBSERVATION, EventType.VALIDATION}
+    facts_by_sid: Dict[Any, list] = {}
+    corr_by_sid: Dict[Any, list] = {}
+    for e in mine:
+        sid = e.data.get("session_id")
+        if e.type == EventType.CORRECTION:
+            if valid(e):
+                corr_by_sid.setdefault(sid, []).append(e)
+        elif e.type in _FACT:
+            facts_by_sid.setdefault(sid, []).append(e)
+    corrected: Dict[str, List[str]] = {}
+    for sid, corrs in corr_by_sid.items():
+        facts = sorted(facts_by_sid.get(sid, []), key=lambda e: _aware(e.valid_from) or floor)
+        for c in corrs:
+            cvf = _aware(c.valid_from) or floor
+            pred = None
+            for f in facts:                             # le dernier fait STRICTEMENT anterieur
+                if (_aware(f.valid_from) or floor) < cvf:
+                    pred = f
+                else:
+                    break
+            if pred is not None:
+                corrected.setdefault(pred.id, []).append(c.id)
+
+    def _closed(e: AetherEvent) -> bool:
+        vt = _aware(e.valid_to)
+        return bool(vt and vt <= asof)
+
+    def corrected_by(e: AetherEvent) -> List[str]:      # correction immediate + clotures ciblees
+        return corrected.get(e.id, []) + _closed_by(closes_idx, e.id)
+
+    def is_corrected(e: AetherEvent) -> bool:
+        return bool(corrected_by(e) or _closed(e))
+
+    ll = lessons_learned(pool, as_of=asof, source_prefix=project, k=kk, standing_k=kk)  # lecons
+
+    decs = [e for e in mine if e.type == EventType.DECISION]
+    dec_val = by_recent([e for e in decs if valid(e) and not is_corrected(e)])
+    dec_corr = by_recent([e for e in decs if is_corrected(e)])
+    hyp = [e for e in mine if e.type == EventType.HYPOTHESIS]
+    hyp_ref = by_recent([e for e in hyp if is_corrected(e)])
+    hyp_std = by_recent([e for e in hyp if valid(e) and not is_corrected(e)])
+    vals = by_recent([e for e in mine if e.type == EventType.VALIDATION and valid(e) and not is_corrected(e)])
+
+    counts = {"decisions_valides": len(dec_val), "decisions_corrigees": len(dec_corr),
+              "hypotheses_refutees": len(hyp_ref), "hypotheses_debout": len(hyp_std),
+              "validations": len(vals), "lecons": ll["counts"]["lessons"]}
     truncated = bool(ll["truncated"] or (kk is not None and any(
-        n > kk for n in (len(dec_corr), len(hyp_ref), len(hyp_std), len(vals)))))
+        n > kk for n in (len(dec_val), len(dec_corr), len(hyp_ref), len(hyp_std), len(vals)))))
     return {
         "project": project, "as_of": asof.isoformat(), "params": {"days": days, "k": k},
         "counts": counts, "truncated": truncated,
-        "decisions_valides": ll["still_standing"],
+        "decisions_valides": [brief(e) for e in dec_val][:kk],
         "decisions_corrigees": [brief(e, {"corrected_by": corrected_by(e)}) for e in dec_corr][:kk],
         "hypotheses_refutees": [brief(e, {"corrected_by": corrected_by(e)}) for e in hyp_ref][:kk],
         "hypotheses_debout": [brief(e) for e in hyp_std][:kk],

@@ -54,6 +54,30 @@ def test_sections_bi_temporelles_par_projet():
     assert any("cache" in h["text"] for h in r["hypotheses_debout"])
 
 
+def test_correction_ne_supersede_que_le_dernier_fait_de_la_session():
+    """Calibrage (06/07) : une session DENSE en décisions + 1 correction tardive ne doit PAS
+    flaguer TOUTES les décisions comme corrigées (inflation observée : bureau 126 vs 21) —
+    seulement le fait IMMÉDIATEMENT antérieur (le dernier état dit). Les autres restent valides."""
+    evs = [_ev(EventType.DECISION, f"etape {i}", T0 + timedelta(minutes=i), "log") for i in range(5)]
+    evs.append(_ev(EventType.CORRECTION, "on revoit la derniere etape", T0 + timedelta(minutes=10), "log"))
+    r = project_review(evs, "project:demo", now=NOW)
+    assert r["counts"]["decisions_corrigees"] == 1         # seulement la derniere (etape 4)
+    assert r["counts"]["decisions_valides"] == 4           # les 4 autres tiennent debout
+    corr = r["decisions_corrigees"][0]
+    assert corr["text"] == "etape 4" and corr["corrected_by"]
+
+
+def test_cloture_ciblee_reste_precise():
+    """Une clôture ciblée (data.closes) corrige PRÉCISÉMENT sa cible, où qu'elle soit."""
+    d = _ev(EventType.DECISION, "decision a clore", T0, "s")
+    other = _ev(EventType.DECISION, "decision gardee", T0 + timedelta(minutes=1), "s")
+    corr = _ev(EventType.CORRECTION, "cloture ciblee", T0 + timedelta(days=1), "curation-closures")
+    corr.data["closes"] = [d.id]
+    r = project_review([d, other, corr], "project:demo", now=NOW)
+    ids_corr = {x["id"] for x in r["decisions_corrigees"]}
+    assert d.id in ids_corr and other.id not in ids_corr   # seule la cible visee
+
+
 def test_isole_le_projet_rien_ne_fuit():
     r = project_review(_journal(), "project:demo", now=NOW)
     blob = str(r)
