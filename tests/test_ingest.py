@@ -137,6 +137,70 @@ def test_closes_invalide_ou_mauvais_kind_422(tmp_path):
     assert r2["status"] == 422 and "correction" in r2["error"]
 
 
+def test_dedup_meme_texte_source_kind_skip_200(tmp_path):
+    """Cause racine des doublons (agent re-journalisant) : un fait VIVANT au meme
+    texte/source/kind n'est PAS re-appende -> 200 duplicate, id existant, journal inchange."""
+    jp = tmp_path / "j.jsonl"; ns = ing.NonceStore(tmp_path / "n.jsonl")
+    p1 = _payload(text="[FABLE5] invariant a re-logger", nonce="n1")
+    b1 = json.dumps(p1).encode()
+    r1 = ing.ingest(p1, "bureau", _sign(b1), b1, REG, str(jp), ns, now=NOW)
+    assert r1["status"] == 201
+    p2 = _payload(text="[FABLE5] invariant a re-logger", nonce="n2")
+    b2 = json.dumps(p2).encode()
+    r2 = ing.ingest(p2, "bureau", _sign(b2), b2, REG, str(jp), ns, now=NOW)
+    assert r2["status"] == 200 and r2.get("duplicate") is True
+    assert r2["id"] == r1["id"]                       # pointe l'original
+    assert len(read_events(str(jp))) == 1            # rien de re-appende
+
+
+def test_dedup_force_true_reappend_201(tmp_path):
+    """Contournement VOLONTAIRE (C1) : force=true re-appende malgre le doublon."""
+    jp = tmp_path / "j.jsonl"; ns = ing.NonceStore(tmp_path / "n.jsonl")
+    p1 = _payload(text="fait duplicable", nonce="n1"); b1 = json.dumps(p1).encode()
+    assert ing.ingest(p1, "bureau", _sign(b1), b1, REG, str(jp), ns, now=NOW)["status"] == 201
+    p2 = _payload(text="fait duplicable", force=True, nonce="n2"); b2 = json.dumps(p2).encode()
+    assert ing.ingest(p2, "bureau", _sign(b2), b2, REG, str(jp), ns, now=NOW)["status"] == 201
+    assert len(read_events(str(jp))) == 2
+
+
+def test_dedup_texte_different_passe(tmp_path):
+    jp = tmp_path / "j.jsonl"; ns = ing.NonceStore(tmp_path / "n.jsonl")
+    p1 = _payload(text="fait A", nonce="n1"); b1 = json.dumps(p1).encode()
+    assert ing.ingest(p1, "bureau", _sign(b1), b1, REG, str(jp), ns, now=NOW)["status"] == 201
+    p2 = _payload(text="fait B", nonce="n2"); b2 = json.dumps(p2).encode()
+    assert ing.ingest(p2, "bureau", _sign(b2), b2, REG, str(jp), ns, now=NOW)["status"] == 201
+    assert len(read_events(str(jp))) == 2
+
+
+def test_dedup_ne_matche_pas_autre_kind(tmp_path):
+    """Meme texte mais kind different = pas un doublon (une decision != une note)."""
+    jp = tmp_path / "j.jsonl"; ns = ing.NonceStore(tmp_path / "n.jsonl")
+    p1 = _payload(text="meme phrase", kind="decision", nonce="n1"); b1 = json.dumps(p1).encode()
+    assert ing.ingest(p1, "bureau", _sign(b1), b1, REG, str(jp), ns, now=NOW)["status"] == 201
+    p2 = _payload(text="meme phrase", kind="note", nonce="n2"); b2 = json.dumps(p2).encode()
+    assert ing.ingest(p2, "bureau", _sign(b2), b2, REG, str(jp), ns, now=NOW)["status"] == 201
+    assert len(read_events(str(jp))) == 2
+
+
+def test_dedup_seulement_contre_les_vivants(tmp_path):
+    """Un original CLOS (C3) ne bloque pas une re-affirmation : dedup vs faits vivants seulement."""
+    jp = tmp_path / "j.jsonl"; ns = ing.NonceStore(tmp_path / "n.jsonl")
+    p1 = _payload(text="fait revocable", nonce="n1"); b1 = json.dumps(p1).encode()
+    id1 = ing.ingest(p1, "bureau", _sign(b1), b1, REG, str(jp), ns, now=NOW)["id"]
+    # cloture ciblee de l'original (curation Phase 2)
+    pc = _payload(kind="correction", text="cloture de fait revocable",
+                  data={"closes": [id1]}, nonce="n2")
+    bc = json.dumps(pc).encode()
+    assert ing.ingest(pc, "bureau", _sign(bc), bc, REG, str(jp), ns, now=NOW)["status"] == 201
+    # re-affirmer le meme texte : l'original est clos -> ce n'est plus un doublon vivant -> 201
+    p3 = _payload(text="fait revocable", nonce="n3"); b3 = json.dumps(p3).encode()
+    assert ing.ingest(p3, "bureau", _sign(b3), b3, REG, str(jp), ns, now=NOW)["status"] == 201
+
+
+def test_find_live_duplicate_texte_vide_renvoie_none(tmp_path):
+    assert ing.find_live_duplicate([], "project:bureau", "note", "   ", NOW) is None
+
+
 def test_nonce_store_prune(tmp_path):
     ns = ing.NonceStore(tmp_path / "n.jsonl")
     ns.add("old", (NOW - timedelta(hours=1)).isoformat())
