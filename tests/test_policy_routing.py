@@ -17,6 +17,16 @@ def test_contains_secret_bloque_les_valeurs_de_cle():
     assert contains_secret("pplx-0123456789abcdef en prod") is True
     assert contains_secret("AKIA0123456789ABCD (aws)") is True
     assert contains_secret("token 0123456789abcdef0123456789abcdef") is True   # hex haute entropie
+    # formats a haute confiance (Fable 5) : GitHub / Slack / JWT / PEM prive
+    assert contains_secret("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345") is True
+    assert contains_secret("bot token xoxb-1234567890-abcdEFGHij") is True
+    assert contains_secret("Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.abcDEF12-_x") is True
+    assert contains_secret("-----BEGIN RSA PRIVATE KEY-----") is True
+
+
+def test_contains_secret_pem_certificat_public_passe():
+    # conservateur : un bloc PEM de CERTIFICAT (public) n'est pas une cle privee -> pas bloque
+    assert contains_secret("le fichier commence par -----BEGIN CERTIFICATE----- (public)") is False
 
 
 def test_contains_secret_laisse_passer_mentions_ip_uuid_email():

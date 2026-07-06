@@ -85,6 +85,11 @@ _PPLX = re.compile(r"\bpplx-[A-Za-z0-9]{6,}\b")
 _AKIA = re.compile(r"\bAKIA[0-9A-Z]{8,}\b")
 _HEX = re.compile(r"\b[0-9a-fA-F]{32,}\b")          # token/cle haute entropie (hex long)
 _LONG_DIGITS = re.compile(r"\b\d{7,}\b")            # tel / carte / id long
+# Formats de credential a haute confiance (quasi zero faux positif) : GitHub, Slack, JWT, PEM prive.
+_GHP = re.compile(r"\bgh[opsu]_[A-Za-z0-9]{20,}\b")                 # ghp_/gho_/ghs_/ghu_ (GitHub)
+_SLACK = re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b")           # xoxb-/xoxp-... (Slack)
+_JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b")  # en-tete base64url
+_PEM = re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----")        # cle privee PEM (pas un cert public)
 
 # (motif, raison) pour les intentions d'attaque. Bornes de mot -> pas de faux positif substring.
 _ATTACK: List[Tuple[re.Pattern, str]] = [
@@ -101,6 +106,10 @@ _REGEX_DETECTORS: List[Tuple[re.Pattern, str]] = [
     (_PPLX, "secret:pplx_prefix"),
     (_AKIA, "secret:akia_prefix"),
     (_HEX, "secret:high_entropy_hex"),
+    (_GHP, "secret:github_token"),
+    (_SLACK, "secret:slack_token"),
+    (_JWT, "secret:jwt"),
+    (_PEM, "secret:pem_private_key"),
     (_LONG_DIGITS, "pii:long_digits"),
 ]
 
