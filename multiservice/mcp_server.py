@@ -131,6 +131,13 @@ def build_server(journal_path: str = None):
                                        k=k, older_than_days=older_than_days)
 
     @srv.tool()
+    def health() -> dict:
+        """Sante du substrat memoire (lecture seule) : disponibilite (on a pu lire), nombre
+        d'evenements, date du dernier, nombre de sources distinctes. Point d'entree d'une REPRISE
+        (health -> recent -> recall) — ne devine rien, ne mute rien."""
+        return memory.health(read_events(jp))
+
+    @srv.tool()
     def index_status() -> dict:
         """FraIcheur de l'index sEmantique : combien d'EvEnements indexables sont couverts.
         Si 'fresh' est faux, recall_semantic ne voit pas tout (rEsultats partiels). Lecture seule."""

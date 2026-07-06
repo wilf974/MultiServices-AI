@@ -14,6 +14,7 @@ READ_TOOLS = {
     "brief", "recent", "usage", "reasoning", "lessons", "index_status",
     "curation",   # rapport de curation Phase 1 (02/07/2026) - lecture seule, comme le reste
     "project_review",   # vue composee de revue de projet (06/07/2026) - lecture seule
+    "health",           # sante du substrat (kit LLM universel, 06/07/2026) - lecture seule
 }
 
 
