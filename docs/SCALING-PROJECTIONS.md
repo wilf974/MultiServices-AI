@@ -1,7 +1,10 @@
 # Passage à l'échelle — projections sans renier « journal = vérité, fonctions pures »
 
-> Statut : **plan validé, non implémenté**. Design issu d'un aller-retour Fable 5 (architecte) ↔
-> Claude (critique + ancrage code), 2026-07-07. Chantier « Scaling » de la feuille de route.
+> Statut : **P0 IMPLÉMENTÉ** (`multiservice/projection.py`, TDD, 6 tests, suite 431 verte). Livré :
+> matérialisation SQLite reconstructible, watermark `(line_count, chain_head)` soudé à `integrity.py`
+> (préfixe falsifié → rebuild forcé), `search` lexical, `verify_projection` (oracle vs fonction pure).
+> **Différé** : FTS5/sqlite-vec, snapshots/as-of, routage de `recall`/`recent`/`brief` vers SQL.
+> Design issu d'un aller-retour Fable 5 (architecte) ↔ Claude (critique + ancrage code), 2026-07-07.
 > Invariants de `CLAUDE.md` : journal append-only source unique, tout dérivé reconstructible,
 > lecture pure, bi-temporalité (C3), souveraineté locale, chaîne de hachage (`integrity.py`).
 
