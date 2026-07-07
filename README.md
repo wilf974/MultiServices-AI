@@ -506,6 +506,7 @@ python -m multiservice.curation_inbox   # local web inbox: approve/reject curati
 python -m multiservice.preheat     # pre-heating: projected cost of the next turn
 python -m multiservice.mcp_server  # read-only MCP memory server
 python -m multiservice.integrity   # tamper-evident hash chain: --seal / --verify the journal
+python -m multiservice.procedural  # procedural memory: recurring successful tool-sequences -> playbooks
 python -m multiservice.projlog "<decision>" --kind decision --session <topic>   # log a project decision
 ```
 
