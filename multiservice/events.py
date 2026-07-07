@@ -38,6 +38,8 @@ class EventType(str, Enum):
     HYPOTHESIS = "hypothesis"
     OBSERVATION = "observation"
     VALIDATION = "validation"
+    # --- gouvernance : intent d'effacement RGPD (crypto-shred, cf. docs/ENCRYPTION-AT-REST.md) ---
+    ERASURE = "erasure"
 
 
 # Le perimetre EXACT capture par le Sprint 13 (capture seule).

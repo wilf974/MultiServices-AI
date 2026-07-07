@@ -97,6 +97,26 @@ class EmbeddingStore:
             self._cache.update(entries)
         return len(entries)
 
+    def contains(self, event_id: str) -> bool:
+        return event_id in self.load()
+
+    def evict(self, event_id: str) -> bool:
+        """Retire PHYSIQUEMENT un vecteur (reecriture du fichier sans lui). EXCEPTION a l'append-only :
+        justifiee par le crypto-shredding RGPD (le vecteur derive du clair legalement efface -> fuite ②bis).
+        L'index est un cache reconstructible, pas le journal-verite : le reecrire est sans risque."""
+        d = self.load()
+        if event_id not in d:
+            return False
+        del d[event_id]
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+        with tmp.open("w", encoding="utf-8") as f:
+            for eid, vec in d.items():
+                f.write(json.dumps({"id": eid, "vec": vec}) + "\n")
+        tmp.replace(self.path)                            # remplacement atomique
+        self._cache = d
+        return True
+
 
 def _is_valid_vec(vec) -> bool:
     """Rejette None / vide / vecteur contenant un NaN ou un inf (x != x detecte NaN).

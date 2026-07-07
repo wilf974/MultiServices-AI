@@ -87,6 +87,53 @@ def seal(journal_path: str | Path, now: Optional[datetime] = None) -> Dict[str, 
     return rec
 
 
+def verify_keyring(events, kr, embed_store) -> Dict[str, Any]:
+    """Verification BIDIRECTIONNELLE du keyring vs journal (completude RGPD, cf. docs/ENCRYPTION-AT-REST.md).
+
+    - unauthorized : materiel-cle disparu SANS event erasure correspondant (censure).
+    - incomplete   : declare efface MAIS cle encore presente (fausse conformite) OU vecteur residuel (②bis).
+    Completude RGPD = `ok` (etat REEL des cles), pas la simple presence de l'event erasure. PUR (lecture).
+    """
+    from collections import defaultdict
+
+    from . import envelope
+    from .events import EventType
+
+    enc = [e for e in events if envelope.is_encrypted(e)]
+    slot_of = {e.id: e.data["enc"]["slot"] for e in enc}
+    events_of_slot: Dict[str, set] = defaultdict(set)
+    for eid, s in slot_of.items():
+        events_of_slot[s].add(eid)
+    needed_ids = set(slot_of)
+    needed_slots = set(slot_of.values())
+    requested = {t for e in events if e.type == EventType.ERASURE for t in e.data.get("targets", [])}
+
+    # ① censure : materiel disparu et non couvert par un intent (le slot d'un event compte aussi)
+    slot_gone = {s for s in needed_slots if not kr.has_slot(s)}
+    dek_gone = {i for i in needed_ids if not kr.has_dek(i)}
+    unauthorized = {s for s in slot_gone if s not in requested}
+    unauthorized |= {i for i in dek_gone if i not in requested and slot_of.get(i) not in requested}
+
+    # ② incomplet : declare efface mais materiel encore present
+    incomplete = {t for t in requested if (t in events_of_slot and kr.has_slot(t))
+                                       or (t in needed_ids and kr.has_dek(t))}
+
+    # ②bis fuite-vecteur (CORRECTIF ⑤) : deployer slot -> event_ids, tester l'index PAR event_id
+    def _deploy(t):
+        if t in events_of_slot:
+            return set(events_of_slot[t])
+        if t in needed_ids:
+            return {t}
+        return set()
+
+    for t in requested:
+        if any(embed_store.contains(eid) for eid in _deploy(t)):
+            incomplete.add(t)
+
+    return {"ok": not (unauthorized or incomplete),
+            "unauthorized": sorted(unauthorized), "incomplete": sorted(incomplete)}
+
+
 def status(journal_path: str | Path) -> Dict[str, Any]:
     """Etat d'integrite : verification contre tous les sceaux enregistres. IO au bord."""
     lines = _lines(journal_path)

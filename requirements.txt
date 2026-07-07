@@ -3,6 +3,7 @@
 # --- noyau (substrat + tests) : pur Python, installe partout ---
 pydantic>=2.0
 pytest>=8.0
+cryptography>=42        # chiffrement au repos + crypto-shredding (multiservice.crypto) : AES-GCM + wrap de cle
 
 # --- backend local GGUF (EmbeddedGGUF) : NE PAS installer via cette ligne ---
 # llama-cpp-python s'installe a part, car le wheel depend de ta pile (CPU vs CUDA).
