@@ -100,3 +100,48 @@ def test_distill_illisible_uncertain():
     from multiservice.procedural import distill_playbook
     pb = distill_playbook(_FB("bla bla pas de json"), {"tools": ["a", "b"], "sample_prompt": ""})
     assert pb["status"] == "uncertain"
+
+
+# --- injection : le playbook dominant du contexte (sans appel modele) ---
+
+def test_candidate_porte_ses_sessions():
+    evs = _turn("t1", ["recall", "remember"], sid="s1") + _turn("t2", ["recall", "remember"], sid="s2")
+    c = playbook_candidates(evs, min_occurrences=2)
+    assert c[0]["sessions"] == ["s1", "s2"]
+
+
+def test_suggest_for_session_retourne_la_methode_du_contexte():
+    from multiservice.procedural import suggest_for_session
+    evs = _turn("t1", ["recall", "remember"], sid="s1") + _turn("t2", ["recall", "remember"], sid="s1")
+    h = suggest_for_session(evs, "s1")
+    assert h is not None and h["tools"] == ["recall", "remember"] and h["count"] == 2
+
+
+def test_suggest_for_session_inconnue_none():
+    from multiservice.procedural import suggest_for_session
+    evs = _turn("t1", ["recall", "remember"], sid="s1") + _turn("t2", ["recall", "remember"], sid="s1")
+    assert suggest_for_session(evs, "autre") is None
+
+
+def test_forecast_injecte_le_hint_procedural():
+    # le pre-chauffage porte un procedural_hint quand la session a une methode recurrente (sans modele)
+    from multiservice.preheat import forecast_next_turn
+    from multiservice.events import EventType
+
+    def _prompt_pair(tid, sid, in_tok, out_tok):
+        # un tour minimal (prompt + completion + token_usage) pour que summarize voie la session
+        base = dict(session_id=sid, turn_id=tid)
+        return [
+            AetherEvent(type=EventType.PROMPT, title="p", description="x", source="user",
+                        observed_at=T0, data={**base, "text": "x"}),
+            AetherEvent(type=EventType.COMPLETION, title="c", description="y", source="llm:m",
+                        observed_at=T0, data={**base, "text": "y"}),
+            AetherEvent(type=EventType.TOKEN_USAGE, title="u", description="u", source="llm:m",
+                        observed_at=T0, data={**base, "input_tokens": in_tok, "output_tokens": out_tok,
+                                              "count_source": "local"}),
+        ]
+    evs = (_prompt_pair("t1", "sx", 100, 20) + _turn("t1", ["recall", "remember"], sid="sx")
+           + _prompt_pair("t2", "sx", 150, 20) + _turn("t2", ["recall", "remember"], sid="sx"))
+    f = forecast_next_turn(evs, session_id="sx")
+    assert f.get("procedural_hint") is not None
+    assert f["procedural_hint"]["tools"] == ["recall", "remember"]

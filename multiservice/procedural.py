@@ -61,6 +61,7 @@ def playbook_candidates(events: List[AetherEvent], min_occurrences: int = 2,
     """Séquences d'outils réussies et RÉCURRENTES (>= min_occurrences) -> playbooks candidats
     (type=playbook_suggestion). PUR, LECTURE SEULE. L'ordre distingue les playbooks. Promotion HUMAINE."""
     prompts = _turn_prompts(events)
+    tid_session = {tid: t["session"] for tid, t in _turns(events).items()}
     groups: Dict[Tuple[str, ...], List[Any]] = {}
     for tid, sig in _successful(events, min_len):
         groups.setdefault(sig, []).append(tid)
@@ -76,8 +77,22 @@ def playbook_candidates(events: List[AetherEvent], min_occurrences: int = 2,
                 "confidence": _confidence(n),
                 "evidence": tids[:8],
                 "sample_prompt": next((prompts.get(t, "") for t in tids if prompts.get(t)), ""),
+                "sessions": sorted({tid_session.get(t) for t in tids if tid_session.get(t) is not None}),
             })
     return sorted(cands, key=lambda c: (-c["count"], c["signature"]))
+
+
+def suggest_for_session(events: List[AetherEvent], session_id: Any,
+                        min_occurrences: int = 2) -> Optional[Dict[str, Any]]:
+    """Le playbook RÉCURRENT DOMINANT observé dans cette session (« ta méthode ici »), ou None.
+    PUR, LECTURE SEULE, **aucun appel modèle** — pour l'injection à la reprise (via `forecast`)."""
+    here = [c for c in playbook_candidates(events, min_occurrences=min_occurrences)
+            if session_id in c.get("sessions", [])]
+    if not here:
+        return None
+    top = max(here, key=lambda c: (c["count"], c["confidence"]))
+    return {"tools": top["tools"], "signature": top["signature"],
+            "count": top["count"], "confidence": top["confidence"]}
 
 
 _SYSTEM_PLAYBOOK = (

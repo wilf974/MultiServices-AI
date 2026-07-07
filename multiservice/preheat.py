@@ -64,8 +64,14 @@ def forecast_next_turn(events: List[AetherEvent], session_id: Optional[str] = No
         regime = "contexte deja borne / plat (peu a gagner par fenetrage)"
     saving = max(0, projected_in - windowed_in)
 
+    # Injection de MÉMOIRE PROCÉDURALE (lecture seule, AUCUN appel modèle - invariant preheat) :
+    # la méthode récurrente observée dans cette session (« tu fais souvent : recall -> remember »).
+    from .procedural import suggest_for_session
+    procedural_hint = suggest_for_session(events, session_id)
+
     return {
         "found": True,
+        "procedural_hint": procedural_hint,
         "session_id": session_id,
         "observed_turns": n,
         "last_input": last_in,
@@ -99,6 +105,9 @@ def format_report(f: Dict[str, Any]) -> str:
                  f"-> epargnerait ~{f['windowing_would_save']} tokens d'entree")
     else:
         L.append(f"  Fenetrage C3 (keep_turns={f['keep_turns']}) : ~0 a gagner (contexte deja borne)")
+    hint = f.get("procedural_hint")
+    if hint:
+        L.append(f"  Methode recurrente ici    : {hint['signature']} (vue {hint['count']}x)")
     L.append("-" * 64)
     L.append("  (estimation - n'engage rien, n'appelle aucun modele, ne mute rien)")
     return "\n".join(L)
