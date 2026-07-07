@@ -443,6 +443,7 @@ python -m multiservice.index       # incremental local embedding (re)index
 python -m multiservice.maintenance # incremental reindex, schedulable (keeps the index fresh)
 python -m multiservice.curation_report  # daily curation health report (deterministic, read-only)
 python -m multiservice.curation_llm     # local-LLM review: de-noise + consolidation proposals
+python -m multiservice.curation_inbox   # local web inbox: approve/reject curation proposals in one click
 python -m multiservice.preheat     # pre-heating: projected cost of the next turn
 python -m multiservice.mcp_server  # read-only MCP memory server
 python -m multiservice.projlog "<decision>" --kind decision --session <topic>   # log a project decision

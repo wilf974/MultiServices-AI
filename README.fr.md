@@ -462,6 +462,7 @@ python -m multiservice.index       # (ré)indexation incrémentale des embedding
 python -m multiservice.maintenance # réindexation incrémentale, planifiable (garde l'index frais)
 python -m multiservice.curation_report  # rapport de santé de curation quotidien (déterministe, lecture seule)
 python -m multiservice.curation_llm     # revue LLM locale : dé-bruitage + propositions de consolidation
+python -m multiservice.curation_inbox   # inbox web locale : approuver/rejeter les propositions en un clic
 python -m multiservice.preheat     # pré-chauffage : coût projeté du prochain tour
 python -m multiservice.mcp_server  # serveur MCP de mémoire (lecture seule)
 python -m multiservice.projlog "<décision>" --kind decision --session <sujet>   # journaliser une décision projet
