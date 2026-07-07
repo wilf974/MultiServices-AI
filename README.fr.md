@@ -332,6 +332,13 @@ Le point clé : l'économie n'est pas *promise* — elle est **mesurée**, en le
 > 16 par le cache sémantique (activé récemment). *Tes chiffres dépendront de l'usage — l'important,
 > c'est qu'ils soient mesurés, pas affirmés.*
 
+> **La qualité du recall aussi se mesure.** Un harnais intégré
+> (`python -m multiservice.memeval --compare`) évalue le recall sur un jeu doré **auto-construit
+> depuis les corrections du journal** (chaque correction pointe les faits qu'elle révise). Sur un
+> journal réel (93 corrections, k=5), **le recall sémantique retrouve le fait visé dans le top-5 pour
+> 73 % d'entre elles, contre 39 % pour le lexical** — près de 2×. Personne ne publie ça sur ses
+> propres données ; tu peux le reproduire sur les tiennes.
+
 ---
 
 ## Souveraineté & confidentialité

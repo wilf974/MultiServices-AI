@@ -45,3 +45,10 @@ def test_golden_from_corrections_utilise_la_structure_c3():
 
 def test_golden_vide_si_aucune_correction():
     assert golden_from_corrections([_ev(EventType.DECISION, "seule", T0, "s")]) == []
+
+
+def test_compare_plusieurs_methodes():
+    from multiservice.memeval import compare
+    golden = [{"query": "q", "relevant_ids": ["a"]}]
+    r = compare(golden, {"lexical": lambda q: ["z"], "semantic": lambda q: ["a"]}, k=1)
+    assert r["lexical"]["hit_rate"] == 0.0 and r["semantic"]["hit_rate"] == 1.0

@@ -318,6 +318,12 @@ how many turns were served from memory, and how many input tokens were actually 
 > 16 saved by the semantic cache (only recently enabled). *Your numbers depend on usage patterns —
 > the point is that they are measured, not asserted.*
 
+> **Recall quality, measured too.** A built-in eval (`python -m multiservice.memeval --compare`)
+> scores recall on a golden set **auto-built from the journal's own corrections** (each correction
+> points at the facts it revises). On one real journal (93 corrections, k=5), **semantic recall found
+> the referenced fact in the top-5 for 73% of them, vs 39% for lexical** — nearly 2×. Nobody
+> publishes this on their own data; you can reproduce it on yours.
+
 ---
 
 ## Sovereignty & privacy

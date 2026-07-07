@@ -52,6 +52,13 @@ def evaluate(golden: List[Dict[str, Any]], retrieve_fn: Callable[[str], List[str
     }
 
 
+def compare(golden: List[Dict[str, Any]], retrievers: Dict[str, Callable[[str], List[str]]],
+            k: int = 5) -> Dict[str, Dict[str, Any]]:
+    """Évalue et compare plusieurs fonctions de recall (nom -> fn) sur le MÊME jeu doré. PUR.
+    Sert la comparaison reproductible lexical vs sémantique (« mesuré, pas promis »)."""
+    return {name: evaluate(golden, fn, k) for name, fn in retrievers.items()}
+
+
 def golden_from_corrections(events: List[AetherEvent]) -> List[Dict[str, Any]]:
     """Jeu doré auto-construit : {query=texte de la correction, relevant_ids=faits antérieurs de SA
     session}. PUR. C'est la structure bi-temporelle du journal qui sert de vérité-terrain."""
@@ -87,6 +94,8 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Harnais d'évaluation de la mémoire (Phase 1, lecture seule).")
     p.add_argument("--journal", default=config.JOURNAL_PATH)
     p.add_argument("--k", type=int, default=5)
+    p.add_argument("--compare", action="store_true",
+                   help="comparer lexical vs semantique (necessite Ollama + l'index d'embeddings)")
     a = p.parse_args()
     events = read_events(a.journal)
     golden = golden_from_corrections(events)
@@ -94,12 +103,29 @@ def main() -> None:
         print("[memeval] aucun jeu dore (aucune correction avec des faits anterieurs).")
         return
 
-    def retrieve(q: str) -> List[str]:
+    def _lexical(q: str) -> List[str]:
         return [h.get("id") for h in memory.recall(events, q, k=a.k)]
 
-    r = evaluate(golden, retrieve, a.k)
-    print(f"[memeval] recall lexical @k={r['k']} sur {r['n_queries']} corrections (jeu dore) : "
-          f"hit_rate={r['hit_rate']}  mean_recall={r['mean_recall']}  mean_precision={r['mean_precision']}")
+    if not a.compare:
+        r = evaluate(golden, _lexical, a.k)
+        print(f"[memeval] recall lexical @k={r['k']} sur {r['n_queries']} corrections (jeu dore) : "
+              f"hit_rate={r['hit_rate']}  mean_recall={r['mean_recall']}  mean_precision={r['mean_precision']}")
+        return
+
+    from .semantic import EmbeddingStore, OllamaEmbedder
+    store = EmbeddingStore(config.EMBED_PATH)
+    embedder = OllamaEmbedder(model=config.EMBED_MODEL, host=config.OLLAMA_HOST)
+
+    def _semantic(q: str) -> List[str]:
+        return [h.get("id") for h in memory.recall_semantic(events, q, embedder, store, k=a.k,
+                                                            sem_weight=0.7, min_fused=0.0)]
+
+    rep = compare(golden, {"lexical": _lexical, "semantic": _semantic}, a.k)
+    print(f"[memeval] comparaison @k={a.k} sur {len(golden)} corrections "
+          f"(index {len(store.load())}/{len(events)} vectorises) :")
+    for name, r in rep.items():
+        print(f"  {name:9} hit_rate={r['hit_rate']:.3f}  mean_recall={r['mean_recall']:.3f}  "
+              f"mean_precision={r['mean_precision']:.3f}")
 
 
 if __name__ == "__main__":
