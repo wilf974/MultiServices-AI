@@ -83,6 +83,8 @@ These are enforced in code and guarded by tests:
   never mutate state. A structural test enforces it.
 - **Sovereignty.** Inference and embeddings are **100% local** (via [Ollama](https://ollama.com)).
   No hosted inference or embedding API is required or used.
+- **Tamper-evident.** An optional hash chain over the journal (`--seal` / `--verify`) makes any past
+  edit detectable — the history isn't just un-deleted, it's *provably* un-rewritten.
 
 The healthy separation the project preserves:
 
@@ -503,6 +505,7 @@ python -m multiservice.curation_llm     # local-LLM review: de-noise + consolida
 python -m multiservice.curation_inbox   # local web inbox: approve/reject curation proposals in one click
 python -m multiservice.preheat     # pre-heating: projected cost of the next turn
 python -m multiservice.mcp_server  # read-only MCP memory server
+python -m multiservice.integrity   # tamper-evident hash chain: --seal / --verify the journal
 python -m multiservice.projlog "<decision>" --kind decision --session <topic>   # log a project decision
 ```
 

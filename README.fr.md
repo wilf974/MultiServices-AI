@@ -87,6 +87,9 @@ Gravés dans le code et vérifiés par des tests :
   jamais le journal, ne mutent jamais d'état. Un test structurel le garantit.
 - **Souveraineté.** Inférence et embeddings sont **100 % locaux** (via [Ollama](https://ollama.com)).
   Aucune API d'inférence ou d'embedding hébergée n'est requise ni utilisée.
+- **Tamper-evident.** Une chaîne de hachage optionnelle sur le journal (`--seal` / `--verify`) rend
+  toute modification passée détectable — l'histoire n'est pas seulement *non supprimée*, elle est
+  *prouvablement non réécrite*.
 
 La séparation saine que le projet préserve :
 
@@ -523,6 +526,7 @@ python -m multiservice.curation_llm     # revue LLM locale : dé-bruitage + prop
 python -m multiservice.curation_inbox   # inbox web locale : approuver/rejeter les propositions en un clic
 python -m multiservice.preheat     # pré-chauffage : coût projeté du prochain tour
 python -m multiservice.mcp_server  # serveur MCP de mémoire (lecture seule)
+python -m multiservice.integrity   # chaîne de hachage tamper-evident : --seal / --verify le journal
 python -m multiservice.projlog "<décision>" --kind decision --session <sujet>   # journaliser une décision projet
 ```
 
