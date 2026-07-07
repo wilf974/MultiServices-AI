@@ -360,6 +360,63 @@ Configuration lives in `multiservice/config.py` and is overridable via environme
 
 ---
 
+## Tutorial — write → correct → recall in 5 minutes
+
+The heart of MultiService IA is the bi-temporal loop: log a fact, correct it later, and watch the
+memory serve the **current** truth while keeping the old one queryable. No cloud, no API keys — and
+this walkthrough writes to a throwaway `tuto.jsonl`, so it never touches your real journal.
+
+**1. Install** (and make `projlog` available everywhere)
+
+```bash
+pip install -r requirements.txt
+pip install -e .
+pytest -q                 # optional — watch the invariants pass
+```
+
+**2. See the payoff instantly** (no model needed — a fictional demo, same question without vs with memory)
+
+```bash
+python examples/memory_demo/compare.py
+```
+
+**3. Log your own decision — then let reality correct it**
+
+```bash
+projlog "Use a NEMA-17 motor for the arm" --kind decision \
+  --source project:tuto --session arm --journal ./tuto.jsonl
+# a day later, the field corrects it:
+projlog "NEMA-17 stalls -> switch to an MG996R servo + 2:1 gearbox" --kind correction \
+  --source project:tuto --session arm --journal ./tuto.jsonl
+```
+
+**4. Watch bi-temporality** — the old decision is no longer served, the correction is, and nothing was deleted
+
+```bash
+python -c "import json; from multiservice.journal import read_events; from multiservice import memory; \
+print(json.dumps(memory.lessons_learned(read_events('tuto.jsonl'), source_prefix='project:tuto'), indent=2, ensure_ascii=False))"
+```
+
+You'll see the **lesson** (what was revised + the current truth). The NEMA-17 decision fell; the
+correction stands — but the original is still there in `tuto.jsonl`, queryable *as of* any past date.
+
+**5. Chat with your memory injected** (needs a local Ollama model)
+
+```bash
+ollama pull <your-chat-model> && ollama pull bge-m3
+python -m multiservice.chat --ollama --recall     # capture is automatic; --recall injects memories
+```
+
+**6. Keep it clean — validate curation in one click**
+
+```bash
+python -m multiservice.curation_inbox --journal ./tuto.jsonl   # http://127.0.0.1:8766
+```
+
+**7. Plug your own LLM in** — MCP / REST / files: see [`docs/INTEGRATION.md`](docs/INTEGRATION.md).
+
+---
+
 ## Using it from an MCP client
 
 > **Plug any LLM in.** Full connection guide — MCP / REST / files, read + supervised write, tools,

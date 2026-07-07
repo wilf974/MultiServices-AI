@@ -373,6 +373,64 @@ La configuration est dans `multiservice/config.py`, surchargeable par variables 
 
 ---
 
+## Tutoriel — écrire → corriger → rappeler en 5 minutes
+
+Le cœur de MultiService IA, c'est la boucle bi-temporelle : journaliser un fait, le corriger plus
+tard, et voir la mémoire servir la vérité **courante** tout en gardant l'ancienne interrogeable.
+Pas de cloud, pas de clé d'API — et ce tutoriel écrit dans un `tuto.jsonl` jetable, donc il ne touche
+jamais ton vrai journal.
+
+**1. Installer** (et rendre `projlog` disponible partout)
+
+```bash
+pip install -r requirements.txt
+pip install -e .
+pytest -q                 # optionnel — regarde les invariants passer
+```
+
+**2. Voir la valeur tout de suite** (aucun modèle requis — démo fictive, même question sans puis avec mémoire)
+
+```bash
+python examples/memory_demo/compare.py
+```
+
+**3. Journaliser ta décision — puis laisser le terrain la corriger**
+
+```bash
+projlog "Utiliser un moteur NEMA-17 pour le bras" --kind decision \
+  --source project:tuto --session bras --journal ./tuto.jsonl
+# un jour plus tard, le terrain corrige :
+projlog "Le NEMA-17 cale -> passer a un servo MG996R + reducteur 2:1" --kind correction \
+  --source project:tuto --session bras --journal ./tuto.jsonl
+```
+
+**4. Voir la bi-temporalité** — l'ancienne décision n'est plus servie, la correction l'est, et rien n'est supprimé
+
+```bash
+python -c "import json; from multiservice.journal import read_events; from multiservice import memory; \
+print(json.dumps(memory.lessons_learned(read_events('tuto.jsonl'), source_prefix='project:tuto'), indent=2, ensure_ascii=False))"
+```
+
+Tu verras la **leçon** (ce qui a été révisé + la vérité courante). La décision NEMA-17 est tombée ;
+la correction tient — mais l'original reste dans `tuto.jsonl`, interrogeable *tel qu'il était* à toute date passée.
+
+**5. Chatter avec ta mémoire injectée** (nécessite un modèle Ollama local)
+
+```bash
+ollama pull <ton-modele-de-chat> && ollama pull bge-m3
+python -m multiservice.chat --ollama --recall     # capture automatique ; --recall injecte les souvenirs
+```
+
+**6. Garder propre — valider la curation en un clic**
+
+```bash
+python -m multiservice.curation_inbox --journal ./tuto.jsonl   # http://127.0.0.1:8766
+```
+
+**7. Brancher ton propre LLM** — MCP / REST / fichiers : voir [`docs/INTEGRATION.md`](docs/INTEGRATION.md).
+
+---
+
 ## Utilisation depuis un client MCP
 
 > **Brancher n'importe quel LLM.** Guide de connexion complet — MCP / REST / fichiers, lecture +
