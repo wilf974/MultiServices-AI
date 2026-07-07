@@ -62,9 +62,13 @@ def append_events(path: str | Path, events: List[AetherEvent]) -> int:
     return len(events)
 
 
-def read_events(path: str | Path) -> List[AetherEvent]:
+def read_events(path: str | Path, *, keyring=None) -> List[AetherEvent]:
     """Relit le journal (pour tests / replay). Vide si absent. Tolere une DERNIERE ligne partielle
-    (ecriture concurrente en cours) ; leve sur une ligne corrompue AU MILIEU (jamais masquee)."""
+    (ecriture concurrente en cours) ; leve sur une ligne corrompue AU MILIEU (jamais masquee).
+
+    `keyring` (opt-in) : si fourni, chaque event chiffre est dechiffre (ou rendu en tombstone si sa cle a
+    ete shreddee, cf. `encrypt.decrypt_or_tombstone`). Defaut None -> comportement inchange (les events
+    chiffres restent chiffres). Forward-only : un journal en clair n'est pas affecte."""
     p = Path(path)
     if not p.exists():
         return []
@@ -77,4 +81,7 @@ def read_events(path: str | Path) -> List[AetherEvent]:
             if i == len(lines) - 1:
                 break                                          # derniere ligne partielle -> on l'ignore
             raise                                              # corruption au milieu -> on ne masque pas
+    if keyring is not None:
+        from .encrypt import decrypt_or_tombstone              # lazy : evite le couplage a l'import
+        out = [decrypt_or_tombstone(e, keyring) for e in out]
     return out

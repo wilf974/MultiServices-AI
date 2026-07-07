@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from multiservice import crypto, encrypt, erase, integrity, keyring
+from multiservice import crypto, encrypt, envelope, erase, integrity, keyring
 from multiservice.events import AetherEvent, EventType
 from multiservice.journal import append_events, read_events
 from multiservice.semantic import EmbeddingStore
@@ -122,3 +122,26 @@ def test_7_purge_projection_pas_de_resurrection(tmp_path):
     # rebuild : le tombstone est detectable -> exclu du re-embed, donc pas de resurrection
     back = encrypt.decrypt_or_tombstone(read_events(journal)[0], km)
     assert back.data.get("erased") is True
+
+
+# ---- branchement opt-in dans read_events : sans keyring rien ne change, avec keyring ca dechiffre ----
+def test_read_events_opt_in_sans_keyring_reste_chiffre(tmp_path):
+    km = _km(tmp_path); journal = tmp_path / "j.jsonl"
+    _append_encrypted(journal, "slot:a", km)
+    raw = read_events(journal)[0]                               # defaut inchange (retro-compat)
+    assert envelope.is_encrypted(raw) and raw.title == ""
+
+
+def test_read_events_opt_in_avec_keyring_dechiffre(tmp_path):
+    km = _km(tmp_path); journal = tmp_path / "j.jsonl"
+    _append_encrypted(journal, "slot:a", km)
+    clear = read_events(journal, keyring=km)[0]
+    assert clear.title == "titre secret" and not envelope.is_encrypted(clear)
+
+
+def test_read_events_opt_in_tombstone_apres_shred(tmp_path):
+    km = _km(tmp_path); journal = tmp_path / "j.jsonl"
+    e = _append_encrypted(journal, "slot:a", km)
+    km.destroy("slot:a")                                        # shred
+    t = read_events(journal, keyring=km)[0]
+    assert t.title == "[efface]" and t.id == e.id
