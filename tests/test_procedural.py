@@ -59,3 +59,44 @@ def test_lecture_seule_pure():
     snap = copy.deepcopy([e.model_dump() for e in evs])
     playbook_candidates(evs)
     assert [e.model_dump() for e in evs] == snap
+
+
+def _prompt(tid, text, sid="s"):
+    return AetherEvent(type=EventType.PROMPT, title="p", description=text, source="user",
+                       observed_at=T0, data={"session_id": sid, "turn_id": tid, "text": text})
+
+
+def test_candidate_porte_un_sample_du_contexte():
+    evs = [_prompt("t1", "range les fichiers du projet")]
+    evs += _turn("t1", ["recall", "remember"]) + _turn("t2", ["recall", "remember"])
+    c = playbook_candidates(evs, min_occurrences=2)
+    assert c[0]["sample_prompt"] == "range les fichiers du projet"
+
+
+# --- distillation LLM (backend injecté, FakeBackend à verdict canned) ---
+
+class _FB:
+    model_id = "m"
+
+    def __init__(self, text):
+        self._t = text
+
+    def chat(self, messages, on_token=None, tools=None):
+        from multiservice.backends import Completion
+        return Completion(self._t, self.model_id, 1, 1)
+
+
+def test_distill_playbook_produit_une_methode():
+    import json
+    from multiservice.procedural import distill_playbook
+    be = _FB(json.dumps({"title": "Ranger", "when_to_use": "quand X", "steps": ["cherche", "ecris"]}))
+    pb = distill_playbook(be, {"tools": ["recall", "remember"], "sample_prompt": "range"})
+    assert pb["status"] == "proposed"
+    assert pb["title"] == "Ranger" and pb["steps"] == ["cherche", "ecris"]
+    assert pb["tools"] == ["recall", "remember"]
+
+
+def test_distill_illisible_uncertain():
+    from multiservice.procedural import distill_playbook
+    pb = distill_playbook(_FB("bla bla pas de json"), {"tools": ["a", "b"], "sample_prompt": ""})
+    assert pb["status"] == "uncertain"

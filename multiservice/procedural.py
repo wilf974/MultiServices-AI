@@ -35,6 +35,17 @@ def _turns(events: List[AetherEvent]) -> Dict[Any, Dict[str, Any]]:
     return turns
 
 
+def _turn_prompts(events: List[AetherEvent]) -> Dict[Any, str]:
+    """{turn_id: texte du prompt} — pour donner un ÉCHANTILLON de contexte au playbook. PUR."""
+    out: Dict[Any, str] = {}
+    for e in events:
+        if e.type == EventType.PROMPT:
+            tid = e.data.get("turn_id")
+            if tid is not None and tid not in out:
+                out[tid] = e.data.get("text", "") or e.description or ""
+    return out
+
+
 def _successful(events: List[AetherEvent], min_len: int) -> List[Tuple[Any, Tuple[str, ...]]]:
     """(turn_id, séquence) des tours RÉUSSIS (>= min_len outils, tous les résultats ok). PUR."""
     out = []
@@ -49,6 +60,7 @@ def playbook_candidates(events: List[AetherEvent], min_occurrences: int = 2,
                         min_len: int = 2) -> List[Dict[str, Any]]:
     """Séquences d'outils réussies et RÉCURRENTES (>= min_occurrences) -> playbooks candidats
     (type=playbook_suggestion). PUR, LECTURE SEULE. L'ordre distingue les playbooks. Promotion HUMAINE."""
+    prompts = _turn_prompts(events)
     groups: Dict[Tuple[str, ...], List[Any]] = {}
     for tid, sig in _successful(events, min_len):
         groups.setdefault(sig, []).append(tid)
@@ -63,8 +75,44 @@ def playbook_candidates(events: List[AetherEvent], min_occurrences: int = 2,
                 "count": n,
                 "confidence": _confidence(n),
                 "evidence": tids[:8],
+                "sample_prompt": next((prompts.get(t, "") for t in tids if prompts.get(t)), ""),
             })
     return sorted(cands, key=lambda c: (-c["count"], c["signature"]))
+
+
+_SYSTEM_PLAYBOOK = (
+    "Tu transformes une SEQUENCE d'outils reussie et recurrente en PLAYBOOK reutilisable. "
+    "Reponds STRICTEMENT en JSON sur une ligne : "
+    "{\"title\": \"...\", \"when_to_use\": \"...\", \"steps\": [\"...\"]}. "
+    "steps = une phrase actionnable par outil, dans l'ordre. Tu decris une METHODE observee, "
+    "tu n'inventes aucun fait."
+)
+
+
+def distill_playbook(backend, candidate: Dict[str, Any], retries: int = 2) -> Dict[str, Any]:
+    """Distille une séquence d'outils (candidate) en playbook LISIBLE via un LLM LOCAL. Le LLM
+    PROPOSE (l'humain valide) ; il décrit une méthode observée, n'écrit rien. Robuste : erreur /
+    JSON illisible -> `status=uncertain` (jamais de playbook à l'aveugle). PUR vis-à-vis du backend."""
+    from .comparator import _parse
+    tools = list(candidate.get("tools", []))
+    user = (f"Sequence d'outils (dans l'ordre) : {' -> '.join(tools)}\n"
+            f"Exemple de contexte : {(candidate.get('sample_prompt') or '')[:300]}\n"
+            "Ta reponse JSON :")
+    msgs = [{"role": "system", "content": _SYSTEM_PLAYBOOK}, {"role": "user", "content": user}]
+    for _ in range(retries + 1):
+        try:
+            c = backend.chat(msgs)
+            d = _parse(getattr(c, "text", "") or "")
+        except Exception:
+            continue
+        if not d or not isinstance(d.get("steps"), list) or not d["steps"]:
+            return {"status": "uncertain", "tools": tools}
+        return {"status": "proposed",
+                "title": str(d.get("title", ""))[:120],
+                "when_to_use": str(d.get("when_to_use", ""))[:200],
+                "steps": [str(s)[:160] for s in d["steps"]][:12],
+                "tools": tools}
+    return {"status": "uncertain", "tools": tools}
 
 
 def format_candidates(cands: List[Dict[str, Any]]) -> str:
