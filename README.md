@@ -507,6 +507,7 @@ python -m multiservice.preheat     # pre-heating: projected cost of the next tur
 python -m multiservice.mcp_server  # read-only MCP memory server
 python -m multiservice.integrity   # tamper-evident hash chain: --seal / --verify the journal
 python -m multiservice.procedural  # procedural memory: recurring successful tool-sequences -> playbooks
+python -m multiservice.memeval     # memory eval: recall@k on a golden set auto-built from corrections
 python -m multiservice.projlog "<decision>" --kind decision --session <topic>   # log a project decision
 ```
 

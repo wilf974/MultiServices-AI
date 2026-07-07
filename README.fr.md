@@ -528,6 +528,7 @@ python -m multiservice.preheat     # pré-chauffage : coût projeté du prochain
 python -m multiservice.mcp_server  # serveur MCP de mémoire (lecture seule)
 python -m multiservice.integrity   # chaîne de hachage tamper-evident : --seal / --verify le journal
 python -m multiservice.procedural  # mémoire procédurale : séquences d'outils réussies récurrentes -> playbooks
+python -m multiservice.memeval     # éval mémoire : recall@k sur un jeu doré auto-construit des corrections
 python -m multiservice.projlog "<décision>" --kind decision --session <sujet>   # journaliser une décision projet
 ```
 
