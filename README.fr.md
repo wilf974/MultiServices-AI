@@ -4,46 +4,61 @@
 >
 > *Un substrat de mémoire souverain pour LLM — une force, pas une dépendance.*
 
-*([English version](README.md))*
-
 <p align="center">
   <img src="docs/dunkbot-payoff.gif" alt="Démo MultiService IA : une décision périmée corrigée par la mémoire" width="720">
 </p>
 
-**Même question. Même historique. Deux réponses différentes.**  
-La différence ? L'une sait qu'une décision a été corrigée.
+**Même question. Même historique. Deux réponses différentes.** La différence ? L'une sait qu'une
+décision a été **corrigée**. MultiService IA transforme un chat sans mémoire en une mémoire qui
+t'appartient — un journal local, append-only, bi-temporel qui **restitue** (recall), **explique**
+(why / replay), **économise** (cache / fenêtrage) et **anticipe** (pré-chauffage) chaque tour, sous
+un contrat strict de lecture seule, sans jamais expédier tes données où que ce soit.
 
-Sans mémoire, l'agent re-recommande un moteur **abandonné**. Avec MultiService IA, il voit que la
-décision a été **corrigée (C3)**, sert la **vérité courante**, et affiche sa **provenance** et sa
-**fraîcheur** — la mémoire ne suffit pas ; l'avantage, c'est **mémoire + provenance + fraîcheur**.
+```mermaid
+flowchart TD
+    U["LLM · agent · humain"]
+    U -->|"capture — MCP / REST / fichiers"| MS["MultiService IA"]
+    MS -->|"append-only · sourcé · bi-temporel (C3)"| J[("journal .jsonl<br/>source unique de vérité · jamais supprimé")]
 
-MultiService IA observe chaque tour d'une conversation LLM (prompt / complétion / appels d'outils /
-tokens), le mémorise comme un événement daté, sourcé et bi-temporel, puis le **restitue** (recall),
-l'**explique** (why / replay), l'**économise** (cache / fenêtrage de contexte) et l'**anticipe**
-(pré-chauffage) — le tout **localement**, sous un contrat strict de lecture seule.
+    J --> R["recall · brief<br/>(trouver)"]
+    J --> P["replay · why<br/>(expliquer)"]
+    J --> F["forecast · economy<br/>(anticiper)"]
+    J --> C["curation · review<br/>(observer)"]
 
-Il transforme un chat sans mémoire en une mémoire qui t'appartient : interrogeable, auditable,
-honnête sur sa propre fraîcheur — sans jamais expédier tes données où que ce soit.
+    R -.->|lecture seule| U
+    P -.->|lecture seule| U
+    F -.->|lecture seule| U
+    C -.->|lecture seule| U
+
+    EMB["embeddings locaux · bge-m3 (Ollama)"] -.->|recall hybride| J
+    H(["l'humain tranche · C1"]) ==>|correct · note| J
+```
+
+**Ce qu'il fait, en quatre lignes :**
+
+- **Ne sert jamais une décision devenue fausse** — les corrections sont des événements de première classe, bi-temporels (C3) ; la vérité d'hier reste interrogeable « telle qu'on la voyait alors », elle n'est simplement plus *servie*.
+- **Chaque réponse peut expliquer d'où elle vient** — provenance et fraîcheur sur chaque résultat ; `why` / `replay` reconstruisent la chaîne causale.
+- **Coupe le snowball de tokens** — cache exact + sémantique et fenêtrage de contexte, avec l'économie *mesurée*, pas affirmée.
+- **100 % local & souverain** — inférence et embeddings tournent sur ta machine (Ollama) ; rien n'est obligé de la quitter.
+
+**Aller à :** [Démarrage rapide](#démarrage-rapide) · [Tutoriel 5 minutes](#tutoriel--écrire--corriger--rappeler-en-5-minutes) · [Brancher un LLM](docs/INTEGRATION.md) · *([English version](README.md))*
+
+*(Les sections ci-dessous sont repliées — clique sur un ▸ pour déplier tout le détail.)*
 
 ---
 
-## Quel problème ça résout ?
+<details>
+<summary><b>🧭 Pourquoi il existe & les principes</b> — le problème, l'idée unique, et le contrat non négociable</summary>
 
-**Sans mémoire :**
+### Quel problème ça résout ?
 
-- les agents répètent des décisions abandonnées
-- le contexte est ré-envoyé à chaque tour
-- le raisonnement passé disparaît
+**Sans mémoire :** les agents répètent des décisions abandonnées · le contexte est ré-envoyé à chaque
+tour · le raisonnement passé disparaît.
 
-**Avec MultiService IA :**
+**Avec MultiService IA :** les faits périmés sont détectés · les corrections deviennent des événements
+de première classe · chaque réponse peut expliquer d'où elle vient.
 
-- les faits périmés sont détectés
-- les corrections deviennent des événements de première classe
-- chaque réponse peut expliquer d'où elle vient
-
----
-
-## Pourquoi
+### Pourquoi
 
 Une conversation avec un LLM est éphémère par défaut : le contexte est ré-envoyé à chaque tour, la
 connaissance se perd entre les sessions, et on ne peut pas demander *pourquoi* le modèle a répondu
@@ -56,9 +71,7 @@ n'est qu'une lecture pure.
 > **« qu'est-ce qui est encore vrai ? »**, **« qu'est-ce qui a été corrigé ? »**, **« pourquoi ? »**
 > et **« cette décision a-t-elle été validée ? »** — via `reasoning()`, `lessons()` et `replay_event()`.
 
----
-
-## En 30 secondes
+### En 30 secondes
 
 ```text
 Sans mémoire          →  recommande encore le NEMA-17 (la 1re idée venue)
@@ -71,9 +84,7 @@ Avec MultiService IA  →  détecte que le NEMA-17 a été corrigé
 La plupart des mémoires d'agent montrent des diagrammes. Ici on montre une **conséquence
 concrète** : éviter de servir une décision devenue fausse, sans jamais perdre l'historique.
 
----
-
-## Principes (non négociables)
+### Principes (non négociables)
 
 Gravés dans le code et vérifiés par des tests :
 
@@ -95,9 +106,7 @@ La séparation saine que le projet préserve :
 
 > **Capture mémorise · Recall restitue · Replay explique · Preheat anticipe · l'Humain tranche.**
 
----
-
-## Comment ça marche
+### Comment ça marche (flux détaillé)
 
 ```
  tour de chat ─▶ routeur ─▶ AetherEvent(s) ─▶ journal append-only (.jsonl)
@@ -116,9 +125,12 @@ Chaque tour devient un `prompt`, une `completion` et un `token_usage`, partagean
 **fonctions pures** (`List[AetherEvent] → résultat`). La seule pièce à effet de bord est le backend
 d'inférence/embedding, volontairement isolé.
 
----
+</details>
 
-## Démo concrète — DunkBot 3000 🥞🤖
+<details>
+<summary><b>🎬 Le voir marcher — démos</b> — DunkBot 3000, dogfooding, et mémoire→connaissance</summary>
+
+### Démo concrète — DunkBot 3000 🥞🤖
 
 ![Démo Memory Arcade](examples/memory_demo/arcade_demo.gif)
 
@@ -149,9 +161,7 @@ Et un **GUI** fun et autonome (aucun serveur) : ouvre **`examples/memory_demo/ar
 navigateur — tape une question, vois les deux panneaux côte à côte, le fait périmé **rayé** (C3) et
 la timeline append-only. Détails : [`examples/memory_demo/`](examples/memory_demo/README.md).
 
----
-
-## Dogfooding : la mémoire se souvient de sa propre évolution
+### Dogfooding : la mémoire se souvient de sa propre évolution
 
 MultiService IA est utilisé pour suivre MultiService IA lui-même. Quand la licence du projet est
 passée de **MIT** à **Apache-2.0**, l'ancienne décision a été **clôturée, jamais supprimée**, et
@@ -165,9 +175,7 @@ Trente jours plus tard, `recall("license")` renvoie la **vérité courante** (Ap
 **MIT en `STALE (C3)`**, tandis que `lessons()` conserve le **pourquoi**. Chaque image de ce clip est
 un événement réel du journal — pas une démo fictive. *(Vidéo complète 34 s : [`docs/license-demo.mp4`](docs/license-demo.mp4).)*
 
----
-
-## De la mémoire à la connaissance
+### De la mémoire à la connaissance
 
 MultiService IA n'est pas qu'un historique de chat. Au fil des semaines et des mois, le journal
 accumule **décisions, corrections, hypothèses, observations et validations** — toutes typées,
@@ -184,9 +192,10 @@ projet : ce qu'on croyait, ce qui était faux, ce qui a été corrigé, ce qui a
 cela que les événements sont **typés, sourcés, datés et jamais supprimés** : la connaissance émerge
 du journal, et le journal reste l'unique source de vérité.
 
----
+</details>
 
-## La surface de mémoire
+<details>
+<summary><b>🧰 La surface de mémoire</b> — l'ensemble d'outils en lecture seule (recall, replay, forecast, curation…)</summary>
 
 Le substrat expose une surface en **lecture seule** (par ex. via [MCP](https://modelcontextprotocol.io)
 vers un client compatible). Tous les résultats portent leur provenance et un drapeau de fraîcheur.
@@ -221,9 +230,12 @@ lecture seule) :
   l'humain qui lance la commande** (C1). La mémoire peut ainsi *compounder* à partir du raisonnement
   de l'agent, tandis que la surface d'interrogation reste strictement en lecture seule.
 
----
+</details>
 
-## Mémoire agentique — le modèle cherche (et se souvient) lui-même
+<details>
+<summary><b>⚙️ Capacités</b> — mémoire agentique, routage multi-fournisseurs, console web locale, auto-curation</summary>
+
+### Mémoire agentique — le modèle cherche (et se souvient) lui-même
 
 Au-delà de la surface lecture seule, un modèle **local** (via le function-calling d'Ollama) peut
 piloter la mémoire **lui-même** : il décide quand il lui faut un souvenir, appelle `recall` /
@@ -248,9 +260,7 @@ dans la boucle de chat avec `--memory-tools`, ou depuis la console web locale (c
 > tour part vers un fournisseur cloud, aucun outil mémoire n'est exposé et rien de sensible n'est
 > embarqué dans le contexte d'outils — la mémoire ne quitte jamais la machine.
 
----
-
-## Routage multi-fournisseurs (optionnel — local d'abord)
+### Routage multi-fournisseurs (optionnel — local d'abord)
 
 Par défaut, tout est local. **En option**, un backend cloud peut être activé derrière la même
 interface `Backend`, gouverné par une politique hybride **« sensible → local seul »** :
@@ -267,9 +277,7 @@ Un `PerplexityBackend` (compatible OpenAI) est livré comme premier fournisseur 
 est enfichable. Activer avec `--cloud` (clé via `PPLX_API_KEY`). **Opt-in — le défaut souverain est
 100 % local.**
 
----
-
-## Console de dev locale (web)
+### Console de dev locale (web)
 
 Une petite page web **strictement locale** (stdlib Python, bind `127.0.0.1` — jamais exposée) pour
 essayer le modèle + la mémoire dans un navigateur : chatter avec un modèle local, voir **les appels
@@ -284,9 +292,7 @@ Le champ modèle accepte un nom Ollama **ou un chemin vers un `.gguf`** — les 
 chargent **en process** (`EmbeddedGGUF`, llama-cpp) comme alternative pleinement locale à Ollama.
 Tout reste sur ta machine.
 
----
-
-## La mémoire se cure elle-même
+### La mémoire se cure elle-même
 
 Au fil des mois, le journal accumule doublons, re-logs reformulés et faits périmés. MultiService IA
 le garde propre avec une couche de **curation** qui reste constitutionnelle — elle **observe et
@@ -310,9 +316,10 @@ Approuver = une **clôture C3** (`memlog-http … --closes`) : la variante est c
 le canonique reste la vérité courante. La boucle : **détecter → juger (LLM local) → prévenir →
 surveiller → l'humain approuve.**
 
----
+</details>
 
-## Économie de tokens
+<details>
+<summary><b>📉 Économie de tokens & qualité du recall, mesurées</b> — des économies et une précision reproductibles</summary>
 
 Des mesures réelles sur des conversations en production ont montré que jusqu'à **98,5 % des tokens
 d'entrée** étaient du ré-envoi de contexte (le « snowball » du contexte qui grossit), et non de
@@ -339,9 +346,10 @@ Le point clé : l'économie n'est pas *promise* — elle est **mesurée**, en le
 > 73 % d'entre elles, contre 39 % pour le lexical** — près de 2×. Personne ne publie ça sur ses
 > propres données ; tu peux le reproduire sur les tiennes.
 
----
+</details>
 
-## Souveraineté & confidentialité
+<details>
+<summary><b>🔒 Souveraineté & confidentialité</b> — où vivent tes données et pourquoi elles y restent</summary>
 
 - Tout tourne **sur ta machine**. Le journal vit dans un fichier local append-only.
 - Inférence et embeddings passent par une instance **Ollama locale** — aucune API hébergée.
@@ -353,6 +361,8 @@ Le point clé : l'économie n'est pas *promise* — elle est **mesurée**, en le
   union-par-id) — pas un tiers ; il ne **filtre pas** sur la sensibilité, mais le chemin d'écriture
   **refuse les valeurs de secret**, donc les credentials n'entrent jamais dans le journal.
 - **Ce dépôt n'embarque aucune donnée.** Ton journal est à toi et reste sur ton disque.
+
+</details>
 
 ---
 
@@ -441,7 +451,8 @@ python -m multiservice.curation_inbox --journal ./tuto.jsonl   # http://127.0.0.
 
 ---
 
-## Utilisation depuis un client MCP
+<details>
+<summary><b>🔌 Brancher n'importe quel LLM</b> — client MCP, HTTP hébergé, écriture distante authentifiée, API REST web</summary>
 
 > **Brancher n'importe quel LLM.** Guide de connexion complet — MCP / REST / fichiers, lecture +
 > écriture supervisée, outils, règles de provenance, politique d'écriture, modes — dans
@@ -516,9 +527,10 @@ les GPT Actions. Le token bearer de chaque client est mappé à une source (impo
 uniquement, rate-limité. Recette dans [`deploy/`](deploy/) (`Dockerfile.webapi`) et
 [`deploy/SETUP-POSTE-CLIENT.md`](deploy/SETUP-POSTE-CLIENT.md).
 
----
+</details>
 
-## CLI
+<details>
+<summary><b>⌨️ Référence CLI</b> — chaque point d'entrée et les commandes de la boucle de chat</summary>
 
 ```bash
 python -m multiservice.chat        # boucle de chat (capture + journalise chaque tour)
@@ -546,14 +558,23 @@ Dans la boucle de chat : `/correct <note>`, `/note <texte>`, `/model <nom|chemin
 > reste frais sans étape manuelle. Les embeddings sémantiques sont une capacité **locale (GPU)** —
 > voir la note sous *Accès distant* sur pourquoi un central sans GPU reste lexical.
 
+> **Mémoire partagée entre projets.** Lance `pip install -e .` pour rendre la commande `projlog`
+> disponible partout sur la machine ; tout projet peut alors alimenter le même journal local avec une
+> source namespacée (`projlog "…" --source project:<nom> --session <sujet>`), isolable via
+> `recall(source="project:<nom>")`. La surface d'interrogation reste en lecture seule — seule la
+> capture écrit. Voir [`docs/CAPTURE-CONVENTION.md`](docs/CAPTURE-CONVENTION.md).
+
 > **Dogfooding.** `projlog` inscrit les décisions/corrections du projet dans le journal, pour que
 > `recall`/`brief`/`recent` ancrent le travail futur dans le raisonnement passé — la mémoire se
 > souvient de son propre développement. C'est une capture (append-only) ; la surface MCP reste en
 > lecture seule.
 
----
+</details>
 
-## État du projet
+<details>
+<summary><b>📊 État du projet & feuille de route</b> — ce qui est livré et ce qui vient</summary>
+
+### État du projet
 
 Moteur fonctionnel avec une surface de mémoire complète en lecture seule, **mémoire agentique** (le
 modèle cherche et écrit son propre namespace `project:ollama`, gardé), **routage multi-fournisseurs
@@ -568,36 +589,36 @@ un journal entre machines. **Couvert par une suite pytest croissante (actuelleme
 fonctionnalité laisse un test de régression permanent ; tout problème révélé par l'usage réel
 devient un test.
 
----
+### Feuille de route — livré
 
-## Feuille de route
-
-- ✅ **Routage multi-fournisseurs** — livré : backend cloud optionnel (Perplexity) derrière la même
+- ✅ **Routage multi-fournisseurs** — backend cloud optionnel (Perplexity) derrière la même
   interface, gouverné par la politique « sensible → local seul », avec provenance de routage explicite.
-- ✅ **Mémoire agentique** — livrée : le modèle local pilote lui-même les outils mémoire et peut écrire
+- ✅ **Mémoire agentique** — le modèle local pilote lui-même les outils mémoire et peut écrire
   dans un namespace gardé, non-autoritatif `project:ollama` ; les outils mémoire restent local-only.
-- ✅ **Console web locale** — livrée : `multiservice.webchat`, Ollama/GGUF + activité mémoire en direct.
-- ✅ **Réindexation planifiable** — livrée : `multiservice.maintenance`, incrémentale, garde le recall frais.
-- ✅ **Mémoire auto-curative** — livrée : détecteurs déterministes + rapport planifié, gardes à l'ingest
+- ✅ **Console web locale** — `multiservice.webchat`, Ollama/GGUF + activité mémoire en direct.
+- ✅ **Réindexation planifiable** — `multiservice.maintenance`, incrémentale, garde le recall frais.
+- ✅ **Mémoire auto-curative** — détecteurs déterministes + rapport planifié, gardes à l'ingest
   (dédup exact + gabarit non rempli), et un comparateur LLM local (dé-bruitage + consolidations),
   le tout validé par l'humain (clôture C3, jamais suppression).
-- ✅ **Une seconde surface (hébergée) en lecture seule** — livrée : serveur streamable-HTTP, voir [`deploy/`](deploy/).
-- ✅ **Écriture distante authentifiée (ingest)** — livrée : mTLS + HMAC + anti-rejeu, client `memlog-http`.
-- ✅ **API REST web pour les LLM web** — livrée : FastAPI publique authentifiée par token
+- ✅ **Une seconde surface (hébergée) en lecture seule** — serveur streamable-HTTP, voir [`deploy/`](deploy/).
+- ✅ **Écriture distante authentifiée (ingest)** — mTLS + HMAC + anti-rejeu, client `memlog-http`.
+- ✅ **API REST web pour les LLM web** — FastAPI publique authentifiée par token
   (recall/remember/recent + OpenAPI), prête pour les Custom GPT. Voir [`deploy/`](deploy/).
-- ✅ **Revue de projet (rôle Synthèse)** — livrée : `project_review(project)` reconstruit l'état
+- ✅ **Revue de projet (rôle Synthèse)** — `project_review(project)` reconstruit l'état
   bi-temporel d'un projet (décisions valides vs corrigées avec le *pourquoi*, hypothèses, validations, leçons).
-- ✅ **Garde anti-secret à l'écriture** — livrée : le chemin d'écriture refuse les valeurs de credential
+- ✅ **Garde anti-secret à l'écriture** — le chemin d'écriture refuse les valeurs de credential
   (un secret dans un journal append-only est ineffaçable) ; `--force` outrepasse (humain, C1).
-- ✅ **Guide d'intégration** — livré : [`docs/INTEGRATION.md`](docs/INTEGRATION.md) — brancher n'importe
+- ✅ **Guide d'intégration** — [`docs/INTEGRATION.md`](docs/INTEGRATION.md) — brancher n'importe
   quel LLM (MCP / REST / fichiers, lecture + écriture supervisée).
 
-### À venir
+### Feuille de route — à venir
 
 - **Chiffrement au repos** du journal local (append-only + chiffrement — un chantier délibéré).
 - **Durcissement multi-nœuds** — révocation de certificat par client et rate-limiting.
 - **Passage à l'échelle** pour de très gros journaux au long cours — stockage indexé / paginé (back-end graphe optionnel).
 - **Calibrage du comparateur** — honorer les rejets, ignorer les variantes versionnées / de lieu distinct.
+
+</details>
 
 ---
 
@@ -607,14 +628,10 @@ Les principes constitutionnels (provenance obligatoire, clôture bi-temporelle j
 humain dans la boucle) sont hérités d'un système compagnon d'event sourcing bi-temporel et appliqués
 ici aux échanges LLM. Il en résulte une mémoire fidèle par la capture et fiable par construction.
 
----
-
 ## Licence
 
 **Apache License 2.0** — voir [`LICENSE`](LICENSE) et [`NOTICE`](NOTICE). Permissive (libre, y
 compris en usage commercial), avec octroi de brevet explicite. © 2026 MultiService IA authors.
-
----
 
 ## Une note sur tes données
 
