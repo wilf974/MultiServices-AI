@@ -1,6 +1,8 @@
 # Chiffrement au repos + crypto-shredding (RGPD art.17) — design durable
 
-> Statut : **plan validé, non implémenté** (P0 à coder). Design issu d'un aller-retour
+> Statut : **P0 IMPLÉMENTÉ** (TDD, 18 tests, suite 422 verte) — commit `36db055`. Non branché par
+> défaut (`decrypt_or_tombstone` opt-in, migration forward-only). Reste : brancher dans `read_events`
+> (opt-in), CLI `encrypt_migrate`, `LogKeyStore` à l'échelle. Design issu d'un aller-retour
 > Fable 5 (architecte) ↔ Claude (critique + ancrage code), 2026-07-07.
 > Respecte les invariants de `CLAUDE.md` : append-only, bi-temporel (C3), provenance (C2),
 > lecture pure, souveraineté locale, chaîne de hachage tamper-evident (`integrity.py`).
