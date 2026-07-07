@@ -26,9 +26,26 @@ def _txt(e: Optional[AetherEvent]) -> str:
     return (e.data.get("text") or e.description or "")
 
 
+def playbook_proposals(events: List[AetherEvent]) -> List[Dict[str, Any]]:
+    """Playbooks candidats (mémoire procédurale) à promouvoir, hors déjà-promus / déjà-rejetés. PURE.
+    Ferme la boucle procédurale : détecter -> distiller -> VALIDER (ici) -> injecter (forecast)."""
+    from . import procedural
+    promoted = {p.get("signature") for p in procedural.promoted_playbooks(events)}
+    rejected = procedural.rejected_playbooks(events)
+    out = []
+    for c in procedural.playbook_candidates(events):
+        if c["signature"] in promoted or c["signature"] in rejected:
+            continue
+        out.append({"id": c["signature"], "action": "promote_playbook",
+                    "tools": c["tools"], "signature": c["signature"],
+                    "count": c["count"], "confidence": c["confidence"],
+                    "sample_prompt": c.get("sample_prompt", "")})
+    return out
+
+
 def pending(events: List[AetherEvent], k: int = 50) -> List[Dict[str, Any]]:
-    """Propositions de curation EN ATTENTE (doublons exacts), enrichies des textes gardé/clos.
-    PURE. Réutilise `curator.curation_report` (déjà borné, garde C3, dédup)."""
+    """Propositions EN ATTENTE : clôtures de curation (doublons exacts, enrichies des textes) ET
+    playbooks à promouvoir (mémoire procédurale). PURE. Réutilise `curator`/`procedural`."""
     report = curator.curation_report(events, k=k)
     by_id = {e.id: e for e in events}
     out: List[Dict[str, Any]] = []
@@ -45,12 +62,22 @@ def pending(events: List[AetherEvent], k: int = 50) -> List[Dict[str, Any]]:
             "command": p.get("command", ""),
             "command_reject": p.get("command_reject", ""),
         })
+    out.extend(playbook_proposals(events))
     return out
 
 
 def apply_decision(proposal: Dict[str, Any], decision: str) -> Dict[str, Any]:
-    """Transforme une décision humaine en payload d'écriture. PURE (n'écrit rien).
-    approuver -> correction + `data.closes` (C3) ; rejeter -> note + `data.rejects`."""
+    """Transforme une décision humaine en payload d'écriture. PURE (n'écrit rien). Route selon
+    l'action : clôture de doublon (C3) ou promotion de playbook (mémoire procédurale, C1)."""
+    if proposal.get("action") == "promote_playbook":
+        if decision == "approve":                             # promouvoir le playbook (validé, C1)
+            from . import procedural
+            return procedural.promote_payload(proposal)
+        if decision == "reject":                              # ne plus le proposer
+            return {"text": f"Playbook rejete (inbox) : {proposal['signature']}",
+                    "kind": "note", "session": "playbook-reviews",
+                    "data": {"reject_playbook": proposal["signature"]}}
+        raise ValueError(f"decision inconnue : {decision!r} (approve|reject)")
     ids = list(proposal["close_ids"])
     if decision == "approve":
         return {"text": (f"Curation approuvee (inbox) : cloture de {len(ids)} doublon(s) exact(s), "
@@ -70,16 +97,23 @@ def render_html(proposals: List[Dict[str, Any]]) -> str:
     else:
         rows = []
         for p in proposals:
-            closes = "".join(f"<div class='close'>clore <code>{_h.escape(cid[:8])}</code> : "
-                             f"{_h.escape(t[:120])}</div>"
-                             for cid, t in zip(p["close_ids"], p["close_texts"]))
+            if p.get("action") == "promote_playbook":         # playbook : promouvoir une METHODE
+                body = (f"<div class='keep'>playbook <code>{_h.escape(p['signature'])}</code></div>"
+                        f"<div class='why'>séquence d'outils réussie, vue {p['count']}x "
+                        f"(confiance {p['confidence']})</div>")
+                labels = ("Promouvoir", "Rejeter")
+            else:                                             # curation : garder vs clore
+                closes = "".join(f"<div class='close'>clore <code>{_h.escape(cid[:8])}</code> : "
+                                 f"{_h.escape(t[:120])}</div>"
+                                 for cid, t in zip(p["close_ids"], p["close_texts"]))
+                body = (f"<div class='keep'>garder <code>{_h.escape(p['keep_id'][:8])}</code> : "
+                        f"{_h.escape(p['keep_text'][:120])}</div>{closes}"
+                        f"<div class='why'>{_h.escape(p['rationale'][:140])}</div>")
+                labels = ("Approuver", "Rejeter")
             rows.append(
-                f"<div class='card' data-id='{_h.escape(p['id'])}'>"
-                f"<div class='keep'>garder <code>{_h.escape(p['keep_id'][:8])}</code> : "
-                f"{_h.escape(p['keep_text'][:120])}</div>{closes}"
-                f"<div class='why'>{_h.escape(p['rationale'][:140])}</div>"
-                f"<div class='act'><button class='ap' onclick=\"decide('{_h.escape(p['id'])}','approve')\">Approuver</button>"
-                f"<button class='rj' onclick=\"decide('{_h.escape(p['id'])}','reject')\">Rejeter</button></div>"
+                f"<div class='card' data-id='{_h.escape(p['id'])}'>{body}"
+                f"<div class='act'><button class='ap' onclick=\"decide('{_h.escape(p['id'])}','approve')\">{labels[0]}</button>"
+                f"<button class='rj' onclick=\"decide('{_h.escape(p['id'])}','reject')\">{labels[1]}</button></div>"
                 f"</div>")
         cards = "\n".join(rows)
     return f"""<!doctype html><html lang=fr><meta charset=utf-8>

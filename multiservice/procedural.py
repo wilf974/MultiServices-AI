@@ -82,17 +82,49 @@ def playbook_candidates(events: List[AetherEvent], min_occurrences: int = 2,
     return sorted(cands, key=lambda c: (-c["count"], c["signature"]))
 
 
+def promote_payload(playbook: Dict[str, Any]) -> Dict[str, Any]:
+    """Approuver un playbook (C1) -> payload d'écriture : un `note` VALIDÉ en session `playbooks`,
+    portant le playbook dans `data.playbook`. PUR (n'écrit rien). C'est l'action « approuver » de
+    l'inbox pour un playbook : la mémoire garde alors la MÉTHODE validée (injectée en clair ensuite)."""
+    pb: Dict[str, Any] = {"tools": list(playbook["tools"]),
+                          "signature": playbook.get("signature") or " -> ".join(playbook["tools"])}
+    for k in ("title", "when_to_use", "steps"):
+        if playbook.get(k):
+            pb[k] = playbook[k]
+    return {"text": f"Playbook valide (C1) : {pb['signature']}", "kind": "note",
+            "session": "playbooks", "data": {"playbook": pb}}
+
+
+def promoted_playbooks(events: List[AetherEvent]) -> List[Dict[str, Any]]:
+    """Playbooks PROMUS (validés) lus du journal (`data.playbook`). PUR, LECTURE SEULE."""
+    return [e.data["playbook"] for e in events if isinstance(e.data.get("playbook"), dict)]
+
+
+def rejected_playbooks(events: List[AetherEvent]) -> set:
+    """Signatures de playbooks REJETÉS (`data.reject_playbook`) — ne reviennent plus. PUR."""
+    return {e.data["reject_playbook"] for e in events
+            if isinstance(e.data.get("reject_playbook"), str) and e.data["reject_playbook"]}
+
+
 def suggest_for_session(events: List[AetherEvent], session_id: Any,
                         min_occurrences: int = 2) -> Optional[Dict[str, Any]]:
     """Le playbook RÉCURRENT DOMINANT observé dans cette session (« ta méthode ici »), ou None.
-    PUR, LECTURE SEULE, **aucun appel modèle** — pour l'injection à la reprise (via `forecast`)."""
+    PUR, LECTURE SEULE, **aucun appel modèle** — pour l'injection à la reprise (via `forecast`).
+    PRÉFÈRE un playbook PROMU (validé) dont la signature matche : plus riche (titre/étapes) et sûr."""
     here = [c for c in playbook_candidates(events, min_occurrences=min_occurrences)
             if session_id in c.get("sessions", [])]
     if not here:
         return None
     top = max(here, key=lambda c: (c["count"], c["confidence"]))
-    return {"tools": top["tools"], "signature": top["signature"],
-            "count": top["count"], "confidence": top["confidence"]}
+    promoted = {p.get("signature"): p for p in promoted_playbooks(events)}
+    pv = promoted.get(top["signature"])
+    out = {"tools": top["tools"], "signature": top["signature"], "count": top["count"],
+           "confidence": top["confidence"], "promoted": bool(pv)}
+    if pv:
+        for k in ("title", "when_to_use", "steps"):
+            if pv.get(k):
+                out[k] = pv[k]
+    return out
 
 
 _SYSTEM_PLAYBOOK = (

@@ -58,3 +58,39 @@ def test_apply_decision_inconnue_leve():
 
 def test_journal_propre_aucune_proposition():
     assert inbox.pending([_ev("un seul fait", T0)]) == []
+
+
+# --- fermeture de la boucle : les playbooks aussi passent par l'inbox ---
+
+def _tool_turn(tid, tools):
+    evs = []
+    for tool in tools:
+        evs.append(AetherEvent(type=EventType.TOOL_CALL, title="tc", description=tool, source="llm:m",
+                               observed_at=T0, data={"session_id": "sx", "turn_id": tid, "tool": tool,
+                                                     "arguments": {}}))
+        evs.append(AetherEvent(type=EventType.TOOL_RESULT, title="tr", description=tool, source="memory",
+                               observed_at=T0, data={"session_id": "sx", "turn_id": tid, "tool": tool,
+                                                     "ok": True}))
+    return evs
+
+
+def _tool_journal():
+    return _tool_turn("t1", ["recall", "remember"]) + _tool_turn("t2", ["recall", "remember"])
+
+
+def test_pending_inclut_les_playbooks():
+    pb = [p for p in inbox.pending(_tool_journal()) if p["action"] == "promote_playbook"]
+    assert len(pb) == 1 and pb[0]["tools"] == ["recall", "remember"]
+
+
+def test_approuver_un_playbook_le_promeut():
+    pb = [p for p in inbox.pending(_tool_journal()) if p["action"] == "promote_playbook"][0]
+    payload = inbox.apply_decision(pb, "approve")
+    assert payload["session"] == "playbooks"
+    assert payload["data"]["playbook"]["tools"] == ["recall", "remember"]
+
+
+def test_rejeter_un_playbook_ne_revient_plus():
+    pb = [p for p in inbox.pending(_tool_journal()) if p["action"] == "promote_playbook"][0]
+    payload = inbox.apply_decision(pb, "reject")
+    assert payload["data"]["reject_playbook"] == pb["signature"]

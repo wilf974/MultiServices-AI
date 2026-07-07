@@ -123,6 +123,37 @@ def test_suggest_for_session_inconnue_none():
     assert suggest_for_session(evs, "autre") is None
 
 
+# --- fermeture de la boucle : promotion (C1) + injection du playbook VALIDÉ ---
+
+def test_promote_payload_ecrit_un_playbook_valide():
+    from multiservice.procedural import promote_payload
+    pl = promote_payload({"tools": ["recall", "remember"], "signature": "recall -> remember",
+                          "title": "Ranger", "steps": ["cherche", "ecris"]})
+    assert pl["kind"] == "note" and pl["session"] == "playbooks"
+    pb = pl["data"]["playbook"]
+    assert pb["tools"] == ["recall", "remember"] and pb["title"] == "Ranger" and pb["steps"] == ["cherche", "ecris"]
+
+
+def _promoted_ev(pb):
+    return AetherEvent(type=EventType.NOTE, title="note", description="playbook", source="project:local",
+                       observed_at=T0, data={"session_id": "playbooks", "turn_id": "p", "playbook": pb})
+
+
+def test_suggest_prefere_le_playbook_promu_plus_riche():
+    from multiservice.procedural import suggest_for_session
+    evs = _turn("t1", ["recall", "remember"], sid="s1") + _turn("t2", ["recall", "remember"], sid="s1")
+    evs.append(_promoted_ev({"tools": ["recall", "remember"], "signature": "recall -> remember",
+                             "title": "Ranger", "steps": ["cherche", "ecris"]}))
+    h = suggest_for_session(evs, "s1")
+    assert h["promoted"] is True and h["title"] == "Ranger" and h["steps"] == ["cherche", "ecris"]
+
+
+def test_suggest_non_promu_marque_promoted_false():
+    from multiservice.procedural import suggest_for_session
+    evs = _turn("t1", ["recall", "remember"], sid="s1") + _turn("t2", ["recall", "remember"], sid="s1")
+    assert suggest_for_session(evs, "s1")["promoted"] is False
+
+
 def test_forecast_injecte_le_hint_procedural():
     # le pre-chauffage porte un procedural_hint quand la session a une methode recurrente (sans modele)
     from multiservice.preheat import forecast_next_turn
