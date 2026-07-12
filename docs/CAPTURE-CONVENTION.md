@@ -1,5 +1,10 @@
 # Capture convention — feed the shared memory from any project
 
+> **⚠️ Périmé sur ce poste (depuis le 2026-06-22).** Ce doc décrit le canal **`projlog`** (journal local).
+> Sur ce poste, l'écriture passe désormais par **`memlog-http`** vers le central (mTLS+HMAC, source imposée
+> par le CN du cert) — voir **[`docs/JOURNALING-PROTOCOL.md`](JOURNALING-PROTOCOL.md)** (protocole à jour :
+> quand / quoi / comment). `projlog` reste valable pour un usage local / VM isolé.
+
 > Querying the MCP is **read-only** (D5): it never writes. Your *work* feeds the memory through a
 > separate, explicit, source-tagged **capture** channel (`projlog`), never through the query surface.
 > This keeps the safety guarantee (an LLM can't silently write the truth journal) while letting
