@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 
-from . import config, memory
+from . import config, memory, projection
 from .journal import read_events
 
 
@@ -24,15 +24,27 @@ def build_server(journal_path: str = None):
     jp = journal_path or config.JOURNAL_PATH
     srv = FastMCP("multiservice-memory")
 
+    def _proj():
+        """Projection a jour (scaling Phase 1) ou None -> repli fonctions pures sur le journal.
+        Le repli garantit que la surface repond meme si la projection est indisponible (db
+        verrouillee, FTS5 absent...) : la projection n'est jamais une dependance, juste un index."""
+        try:
+            return projection.for_journal(jp, config.PROJECTION_PATH)
+        except Exception:
+            return None
+
     @srv.tool()
     def recall(query: str, k: int = 10, type: str = "", source: str = "",
                has_code: bool = False, has_table: bool = False) -> list:
         """Contexte pertinent (lecture seule, bi-temporel, provenance attachee).
         Filtres optionnels : type ('prompt'/'completion'/...), source ('user'/'llm'/...),
         et STRUCTURE : has_code (souvenirs avec bloc de code), has_table (avec tableau markdown)."""
-        return memory.recall(read_events(jp), query, k=k,
-                             type_=(type or None), source_prefix=(source or None),
-                             has_code=has_code, has_table=has_table)
+        p = _proj()
+        kw = dict(k=k, type_=(type or None), source_prefix=(source or None),
+                  has_code=has_code, has_table=has_table)
+        if p is not None:
+            return projection.recall_sql(p, query, **kw)
+        return memory.recall(read_events(jp), query, **kw)
 
     @srv.tool()
     def why(turn_id: str) -> list:
@@ -75,6 +87,9 @@ def build_server(journal_path: str = None):
     def brief(query: str, k: int = 5) -> dict:
         """Brief composE sur un SUJET (un appel = souvenirs + dEcisions + rEvisEs C3 + sessions).
         DEduplicquE et classE. Lecture seule. Remplace plusieurs recall/why a la main."""
+        p = _proj()
+        if p is not None:
+            return projection.brief_sql(p, query, k=k)
         return memory.topic_brief(read_events(jp), query, k=k)
 
     @srv.tool()
@@ -84,6 +99,10 @@ def build_server(journal_path: str = None):
         `source` filtre par projet (ex 'project:MultiService-IA', graphies reconciliees) ;
         `limit` plafonne decisions/corrections (defaut 20, sortie bornee). Les compteurs
         `counts` restent complets et `truncated` signale la coupe."""
+        p = _proj()
+        if p is not None:
+            return projection.recent_sql(p, days=days,
+                                         source_prefix=(source or None), limit=limit)
         return memory.recent(read_events(jp), days=days,
                              source_prefix=(source or None), limit=limit)
 

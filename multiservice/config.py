@@ -49,6 +49,12 @@ EMBED_PATH = os.environ.get(
 )
 EMBED_MODEL = os.environ.get("MULTISERVICE_EMBED_MODEL", "bge-m3")
 
+# Projection SQLite reconstructible (scaling Phase 1) : index de LECTURE, jamais une verite.
+PROJECTION_PATH = os.environ.get(
+    "MULTISERVICE_PROJECTION",
+    str(Path.home() / ".aethercore" / "projection-llm.db"),
+)
+
 # Dossier des skills promues (S17), au format Agent Skills (SKILL.md).
 SKILLS_DIR = os.environ.get(
     "MULTISERVICE_SKILLS",

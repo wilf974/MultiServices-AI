@@ -1,9 +1,14 @@
 # Passage à l'échelle — projections sans renier « journal = vérité, fonctions pures »
 
-> Statut : **P0 IMPLÉMENTÉ** (`multiservice/projection.py`, TDD, 6 tests, suite 431 verte). Livré :
-> matérialisation SQLite reconstructible, watermark `(line_count, chain_head)` soudé à `integrity.py`
+> Statut : **P0 + PHASE 1 IMPLÉMENTÉS** (`multiservice/projection.py`, TDD, 16 tests, suite 441 verte).
+> P0 : matérialisation SQLite reconstructible, watermark `(line_count, chain_head)` soudé à `integrity.py`
 > (préfixe falsifié → rebuild forcé), `search` lexical, `verify_projection` (oracle vs fonction pure).
-> **Différé** : FTS5/sqlite-vec, snapshots/as-of, routage de `recall`/`recent`/`brief` vers SQL.
+> Phase 1 (17/07/2026) : **FTS5 trigram sur texte normalisé = PRÉFILTRE sur-ensemble** ; les fonctions
+> pures de `memory` restent LE moteur (scores, C3, tri, snippets) — le SQL ne fait que restreindre la
+> liste d'events fournie (candidats + toutes les corrections C3), d'où l'égalité oracle par construction.
+> Routage : `recall_sql`/`recent_sql`/`brief_sql` + `for_journal` ; surface MCP branchée (repli
+> fonctions pures si projection indisponible). Vérifié sur le journal réel (2 621 events, oracle ÉGAL).
+> **Différé** : sqlite-vec en **binaire + re-score** (décision `0407c17a`, 17/07), snapshots/as-of.
 > Design issu d'un aller-retour Fable 5 (architecte) ↔ Claude (critique + ancrage code), 2026-07-07.
 > Invariants de `CLAUDE.md` : journal append-only source unique, tout dérivé reconstructible,
 > lecture pure, bi-temporalité (C3), souveraineté locale, chaîne de hachage (`integrity.py`).
