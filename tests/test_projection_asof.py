@@ -136,6 +136,32 @@ def test_incremental_egale_batch_avec_clotures(tmp_path):
     assert inc.conn.execute("SELECT count(*) FROM closures").fetchone()[0] == 1   # la cloture est materialisee
 
 
+# --- la vue BORNEE pour la surface MCP (memory.as_of_view) ---
+
+def test_as_of_view_bornee_compteurs_complets_recents_d_abord():
+    evs = [_ev("ancien", T(1)), _ev("recent", T(3)),
+           _ev("clos", T(2), vt=T(4)), _ev("futur", T(9))]
+    v = memory.as_of_view(evs, T(4), k=2)
+    assert v["at"].startswith("2026-01-04")
+    assert v["count"] == 3                                  # compteur COMPLET (vt == as_of : encore valide)
+    assert v["by_type"] == {"note": 3}
+    assert v["truncated"] is True and len(v["items"]) == 2  # sortie bornee a k
+    assert v["items"][0]["valid_from"].startswith("2026-01-03")   # recents d'abord
+    assert v["items"][1]["valid_from"].startswith("2026-01-02")
+    v6 = memory.as_of_view(evs, T(6), k=10)
+    assert v6["count"] == 2 and v6["truncated"] is False     # la cloture explicite est refletee
+
+
+def test_as_of_view_filtre_source_et_cloture_ciblee():
+    fait = _ev("fait vise", T(1), source="project:alpha")
+    autre = _ev("autre projet", T(2), source="project:beta")
+    evs = [fait, autre, _corr([fait.id], T(4))]
+    v3 = memory.as_of_view(evs, T(3), source_prefix="project:alpha", k=10)
+    assert v3["count"] == 1 and v3["items"][0]["id"] == fait.id   # filtre source (compteurs inclus)
+    v5 = memory.as_of_view(evs, T(5), source_prefix="project:alpha", k=10)
+    assert v5["count"] == 0 and v5["items"] == []                 # cloture ciblee en vigueur a T5
+
+
 def test_main_snapshot_et_as_of(tmp_path, capsys):
     from multiservice import project
     journal = tmp_path / "j.jsonl"

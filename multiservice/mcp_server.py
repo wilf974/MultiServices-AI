@@ -153,6 +153,20 @@ def build_server(journal_path: str = None):
                                        k=k, older_than_days=older_than_days)
 
     @srv.tool()
+    def as_of(at: str = "", source: str = "", k: int = 50) -> dict:
+        """Etat ACTIF de la memoire au temps valide `at` (ISO 8601 ; vide = maintenant) :
+        « qu'est-ce qui etait vrai a T ? ». Bi-temporel C3 : clotures explicites + clotures
+        ciblees en vigueur a T (une correction tardive retro-datee est refletee, jamais de
+        suppression). `source` filtre par projet ; compteurs complets, items recents d'abord,
+        sortie bornee (k), `truncated` signale la coupe. Servi par la projection (snapshot +
+        delta + overlay, Phase 3) avec repli pur. Lecture seule."""
+        from datetime import datetime, timezone
+        t = datetime.fromisoformat(at) if at else datetime.now(timezone.utc)
+        p = _proj()
+        evs = projection.as_of_sql(p, t) if p is not None else read_events(jp)
+        return memory.as_of_view(evs, t, source_prefix=(source or None), k=k)
+
+    @srv.tool()
     def health() -> dict:
         """Sante du substrat memoire (lecture seule) : disponibilite (on a pu lire), nombre
         d'evenements, date du dernier, nombre de sources distinctes. Point d'entree d'une REPRISE

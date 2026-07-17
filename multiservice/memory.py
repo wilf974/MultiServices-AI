@@ -128,6 +128,33 @@ def as_of(events: List[AetherEvent], at: Optional[datetime] = None) -> List[Aeth
     return out
 
 
+def as_of_view(events: List[AetherEvent], at: Optional[datetime] = None,
+               source_prefix: Optional[str] = None, k: int = 50) -> Dict[str, Any]:
+    """Vue BORNEE de l'etat actif au temps valide `at` (surface MCP) : « qu'est-ce qui etait
+    vrai a T ? ». Compteurs COMPLETS (`count`, `by_type`), items RECENTS d'abord, sortie
+    bornee (k), `truncated` signale la coupe. `source_prefix` filtre par projet (compteurs
+    inclus). Idempotent sur une liste deja active (as_of l'est). PUR, LECTURE SEULE."""
+    asof = _aware(at) or datetime.now(timezone.utc)
+    active = [e for e in as_of(events, asof)
+              if _source_matches(e.source, source_prefix)]
+    by_type: Dict[str, int] = {}
+    for e in active:
+        by_type[e.type.value] = by_type.get(e.type.value, 0) + 1
+    recent_first = sorted(active, key=lambda e: (_aware(e.valid_from) or asof), reverse=True)
+    items = []
+    for e in recent_first[:max(0, k)]:
+        txt = _text(e)
+        vf = _aware(e.valid_from)
+        items.append({
+            "id": e.id, "type": e.type.value, "source": e.source,
+            "valid_from": vf.isoformat() if vf else None,
+            "session_id": e.data.get("session_id"),
+            "text": txt if len(txt) <= 200 else txt[:200].rstrip() + "...",
+        })
+    return {"at": asof.isoformat(), "count": len(active), "by_type": by_type,
+            "truncated": len(active) > k, "items": items}
+
+
 def _snippet(text: str, query: str, width: int = 200) -> str:
     """Extrait centre sur le 1er terme de la requete trouve, avec ellipses. PUR, econome.
     Renvoie le texte entier s'il est deja court. Evite le dump : la sortie reste legere."""
