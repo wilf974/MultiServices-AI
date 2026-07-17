@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Lance le conteneur de memoire centrale. Journal monte en LECTURE SEULE (:ro) = garantie OS (D5).
+# Le(s) Host public(s) servis par le reverse proxy sont une donnee de DEPLOIEMENT, pas du repo :
+#   MEM_ALLOWED_HOSTS="mem.mondomaine.tld,127.0.0.1:8302,localhost:8302" bash deploy/docker-run-mem.sh
 # NOTE: MULTISERVICE_EMBED n'est PAS monte volontairement : sans Ollama dans le conteneur,
 # laisser l'index force recall_semantic a appeler l'embedder (timeout). Absent -> repli lexical propre.
 # Le semantique cote serveur est une affaire de phase 2 (Ollama + index dans le conteneur).
@@ -13,6 +15,6 @@ docker run -d --name mem-mcp --restart unless-stopped \
   -e MULTISERVICE_SEMCACHE=/data/semcache-llm.jsonl \
   -e MULTISERVICE_SKILLS=/data/skills \
   -e MULTISERVICE_HTTP_HOST=0.0.0.0 -e MULTISERVICE_HTTP_PORT=8302 \
-  -e MULTISERVICE_HTTP_ALLOWED_HOSTS=mem.example.com,127.0.0.1:8302,localhost:8302 \
+  -e MULTISERVICE_HTTP_ALLOWED_HOSTS="${MEM_ALLOWED_HOSTS:-mem.example.com,127.0.0.1:8302,localhost:8302}" \
   mem-mcp
 echo "mem-mcp lance sur 127.0.0.1:8302 (journal en lecture seule)"
