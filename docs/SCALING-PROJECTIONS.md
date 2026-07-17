@@ -1,6 +1,6 @@
 # Passage à l'échelle — projections sans renier « journal = vérité, fonctions pures »
 
-> Statut : **P0 + PHASE 1 + PHASE 2 + VECTORIEL BINAIRE IMPLÉMENTÉS** (`multiservice/projection.py` + `multiservice/project.py`, TDD, suite 461 verte).
+> Statut : **P0 + PHASE 1 + PHASE 2 + VECTORIEL BINAIRE + PHASE 3 (snapshots/as-of) IMPLÉMENTÉS** (`multiservice/projection.py` + `multiservice/project.py`, TDD, suite 469 verte).
 > P0 : matérialisation SQLite reconstructible, watermark `(line_count, chain_head)` soudé à `integrity.py`
 > (préfixe falsifié → rebuild forcé), `search` lexical, `verify_projection` (oracle vs fonction pure).
 > Phase 1 (17/07/2026) : **FTS5 trigram sur texte normalisé = PRÉFILTRE sur-ensemble** ; les fonctions
@@ -23,7 +23,20 @@
 > (M=120) ; préfiltre 2,9 ms vs 182 ms de cosinus exact (×63). `evict` (crypto-shredding RGPD)
 > **propagé** par `sync_vectors` (les bits dérivent du clair effacé). Sync : `python -m
 > multiservice.project --vectors` après `python -m multiservice.index`. Surface MCP branchée.
-> **Différé** : snapshots/as-of (Phase 3).
+> Phase 3 (17/07/2026) : **snapshots + as-of par temps valide** — oracle pur `memory.as_of`
+> (valid_from/valid_to + clôtures ciblées `data.closes` en vigueur à T ; le supersede-session reste
+> un drapeau de lecture, pas une clôture) ; table `closures` (fold des clôtures, couverte par
+> `state_hash`/`verify`) ; `take_snapshot(T)` (état actif figé, refigeable — ne dérive que du
+> journal) ; `as_of_sql` = snapshot le plus proche ≤ T + **delta par temps valide** (pas par ligne :
+> un event rétro/futur-daté appendé tôt reste attrapé) + overlay (corrections + leurs **cibles**
+> candidates : une clôture elle-même close ressuscite sa cible) → sur-ensemble par construction,
+> le pur tranche, **égalité oracle**. Correction C3 tardive : reflétée **sans rebuild** (testé).
+> Rebuild forcé (tamper) → **snapshots purgés** (jamais d'état figé dérivé d'un préfixe inconnu).
+> CLI : `--snapshot [ISO]` · `--as-of ISO`. **Vérifié sur le réel** (2 621 events) : égalité
+> SQL == pur sur les 4 chemins (repli, snapshot exact, snapshot+delta 9 j, delta à maintenant) ;
+> 2 550 actifs au 17/07, 24 au 17/06. 8 tests (`tests/test_projection_asof.py`), suite 469 verte.
+> Exploitation : tâche planifiée `MultiServiceAI-Projection` (15 min, `scripts/install_project_update.ps1`)
+> = rattrapage `run_once` + `--vectors` — fin des reprises STALE.
 > Design issu d'un aller-retour Fable 5 (architecte) ↔ Claude (critique + ancrage code), 2026-07-07.
 > Invariants de `CLAUDE.md` : journal append-only source unique, tout dérivé reconstructible,
 > lecture pure, bi-temporalité (C3), souveraineté locale, chaîne de hachage (`integrity.py`).
@@ -85,7 +98,9 @@ tourner **en CI**.
   les fonctions pures servent d'**oracle** (test : résultat SQL == résultat fonction pure sur le même journal).
 - **Phase 2** : updater incrémental (commande `project` post-append, ou tail-watcher). **FAIT** :
   `multiservice/project.py` (`run_once`/`status`/`watch` + CLI, 9 tests).
-- **Phase 3** : snapshots pour `as-of`.
+- **Phase 3** : snapshots pour `as-of`. **FAIT** : `memory.as_of` (oracle pur), `take_snapshot`,
+  `as_of_sql` (snapshot + delta + overlay), purge des snapshots au rebuild, CLI `--snapshot`/`--as-of`
+  (8 tests, `tests/test_projection_asof.py`).
 
 ## 5. Plan de test (vérifiable)
 

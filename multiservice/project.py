@@ -18,7 +18,7 @@ from typing import Dict, Optional
 
 from . import integrity
 from .journal import read_events
-from .projection import Projection, verify_projection
+from .projection import Projection, as_of_sql, verify_projection
 
 
 def _stat(journal) -> Optional[tuple]:
@@ -84,11 +84,32 @@ def main(argv=None) -> None:
                     help="synchronise le canal vectoriel binaire depuis le store d'embeddings "
                          "(local only ; a lancer apres `python -m multiservice.index`)")
     ap.add_argument("--embed", default=config.EMBED_PATH, help="store d'embeddings float32 (jsonl)")
+    ap.add_argument("--snapshot", nargs="?", const="", default=None, metavar="ISO",
+                    help="fige l'etat actif au temps valide ISO (defaut : maintenant), "
+                         "apres rattrapage (Phase 3 as-of)")
+    ap.add_argument("--as-of", dest="as_of", default=None, metavar="ISO",
+                    help="etat actif au temps valide ISO via la projection "
+                         "(snapshot + delta + overlay ; lecture seule)")
     a = ap.parse_args(argv)
     if a.vectors:
         from .semantic import EmbeddingStore
         r = Projection(a.db).sync_vectors(EmbeddingStore(a.embed))
         print(f"[project] vectors : added={r['added']} removed={r['removed']} total={r['total']}")
+        return
+    if a.snapshot is not None:
+        from datetime import datetime, timezone
+        at = datetime.fromisoformat(a.snapshot) if a.snapshot else datetime.now(timezone.utc)
+        p = Projection(a.db)
+        p.update(a.journal)
+        n = p.take_snapshot(at)
+        print(f"[project] snapshot : {n} actifs a {at.isoformat()}")
+        return
+    if a.as_of:
+        from datetime import datetime
+        at = datetime.fromisoformat(a.as_of)
+        p = Projection(a.db)
+        p.update(a.journal)
+        print(f"[project] as-of {at.isoformat()} : actifs={len(as_of_sql(p, at))}")
         return
     if a.status:
         s = status(a.journal, a.db)

@@ -106,6 +106,28 @@ def _closed_by(closes_idx: Dict[str, List[str]], event_id: str) -> List[str]:
     return list(closes_idx.get(event_id, []))
 
 
+def as_of(events: List[AetherEvent], at: Optional[datetime] = None) -> List[AetherEvent]:
+    """Etat ACTIF au TEMPS VALIDE `at` (C3) : valid_from <= at, pas de cloture explicite
+    (valid_to < at), pas de cloture CIBLEE en vigueur a `at` (`data.closes`, quelle que soit
+    sa date d'ARRIVEE — c'est l'overlay du design snapshots, docs/SCALING-PROJECTIONS.md par.3).
+    Le supersede par session reste un DRAPEAU de lecture (recall), pas une cloture.
+    Ordre du journal preserve. PUR, LECTURE SEULE — c'est l'ORACLE de `projection.as_of_sql`."""
+    asof = _aware(at) or datetime.now(timezone.utc)
+    closes_idx = _closes_index(events, as_of=asof)
+    out = []
+    for e in events:
+        vf = _aware(e.valid_from)
+        if vf and vf > asof:
+            continue                                 # pas encore valide a as_of
+        vt = _aware(e.valid_to)
+        if vt and vt < asof:
+            continue                                 # cloture explicite avant as_of (C3)
+        if _closed_by(closes_idx, e.id):
+            continue                                 # cloture ciblee en vigueur a as_of
+        out.append(e)
+    return out
+
+
 def _snippet(text: str, query: str, width: int = 200) -> str:
     """Extrait centre sur le 1er terme de la requete trouve, avec ellipses. PUR, econome.
     Renvoie le texte entier s'il est deja court. Evite le dump : la sortie reste legere."""

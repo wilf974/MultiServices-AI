@@ -17,7 +17,13 @@ reconstructible). Le top-M Hamming n'est qu'un PREFILTRE de plus (union candidat
 corrections) ; le re-score float32 reste dans `memory.recall_semantic` (pur). Approximation assumee
 et CALIBREE SUR LE REEL (2379 vecteurs bge-m3, 100 requetes) : recall@10 dans le top-M binaire =
 96.3% a M=40, 99.1% a M=80 (defaut), 99.5% a M=120 ; prefiltre 2.9ms vs 182ms cosinus exact (x63).
-`evict` (crypto-shredding) PROPAGE au sync (les bits derivent du clair). DIFFERE : snapshots/as-of.
+`evict` (crypto-shredding) PROPAGE au sync (les bits derivent du clair).
+Phase 3 (snapshots/as-of, design par.3) : etat ACTIF par TEMPS VALIDE. Oracle pur `memory.as_of` ;
+table `closures` (fold des clotures ciblees, couverte par state_hash/verify) ; `take_snapshot(T)`
+fige l'etat actif (refigeable, ne derive que du journal) ; `as_of_sql` = snapshot le plus proche
+<= T + delta par temps valide + overlay (corrections + cibles) -> sur-ensemble par construction,
+le pur tranche (egalite oracle). Correction tardive refletee SANS rebuild ; rebuild force (tamper)
+-> snapshots PURGES (jamais d'etat fige derive d'un prefixe inconnu).
 """
 from __future__ import annotations
 
@@ -29,13 +35,13 @@ from pathlib import Path
 from typing import List
 
 from . import integrity, memory
-from .events import AetherEvent
+from .events import AetherEvent, EventType
 from .journal import read_events
 from .semantic import hamming, pack_bits
 from .skills import _norm, _tokens
 
 _COLS = "line_no,id,type,source,text,valid_from,valid_to,raw"
-_SCHEMA = "3"                       # v3 : table vecs (canal binaire) ; v2 : raw + FTS5 + UTC
+_SCHEMA = "4"                       # v4 : closures + snapshots (as-of) ; v3 : vecs ; v2 : raw + FTS5 + UTC
 
 
 def _iso(dt):
@@ -71,6 +77,9 @@ class Projection:
             self.conn.execute("DROP TABLE IF EXISTS events")      # est un derive -> on jette et on
             self.conn.execute("DROP TABLE IF EXISTS events_fts")  # reconstruira depuis le journal-verite
             self.conn.execute("DROP TABLE IF EXISTS vecs")        # (et le store d'embeddings pour vecs)
+            self.conn.execute("DROP TABLE IF EXISTS closures")
+            self.conn.execute("DROP TABLE IF EXISTS snapshots")
+            self.conn.execute("DROP TABLE IF EXISTS snapshot_state")
             self.conn.execute("DELETE FROM meta")
             self._set("schema", _SCHEMA)
         self.conn.execute("CREATE TABLE IF NOT EXISTS events ("
@@ -79,6 +88,12 @@ class Projection:
         self.conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS events_fts "
                           "USING fts5(ntext, tokenize='trigram')")   # trigram = parite sous-chaine avec _score
         self.conn.execute("CREATE TABLE IF NOT EXISTS vecs (id TEXT PRIMARY KEY, bits BLOB)")
+        self.conn.execute("CREATE TABLE IF NOT EXISTS closures ("     # fold des clotures ciblees
+                          "target_id TEXT, corr_id TEXT, PRIMARY KEY (target_id, corr_id))")
+        self.conn.execute("CREATE TABLE IF NOT EXISTS snapshots ("    # etats actifs figes (as-of)
+                          "ts TEXT PRIMARY KEY, line_count INTEGER, created_at TEXT)")
+        self.conn.execute("CREATE TABLE IF NOT EXISTS snapshot_state ("
+                          "ts TEXT, id TEXT, PRIMARY KEY (ts, id))")
         self.conn.commit()
 
     # --- watermark ---
@@ -100,13 +115,24 @@ class Projection:
                               [_row(i, events[i], lines[i]) for i in range(start, n)])
         self.conn.executemany("INSERT INTO events_fts (rowid, ntext) VALUES (?,?)",
                               [(i, _norm(memory._text(events[i]))) for i in range(start, n)])
+        pairs = [(t, events[i].id) for i in range(start, n)
+                 if events[i].type == EventType.CORRECTION
+                 and isinstance(events[i].data.get("closes"), list)
+                 for t in events[i].data["closes"] if isinstance(t, str) and t]
+        if pairs:                                        # fold des clotures ciblees (as-of, Phase 3)
+            self.conn.executemany("INSERT OR IGNORE INTO closures (target_id, corr_id) VALUES (?,?)", pairs)
 
     # --- (re)construction ---
     def rebuild(self, journal) -> int:
-        """Fold complet depuis genesis. Idempotent."""
+        """Fold complet depuis genesis. Idempotent. Purge aussi les SNAPSHOTS : un etat fige
+        derive d'un prefixe desormais inconnu (tamper) ne doit pas survivre — un snapshot est
+        refigeable a l'identique via `take_snapshot(ts)` (il ne derive que du journal)."""
         lines, events, n = self._load(journal)
         self.conn.execute("DELETE FROM events")
         self.conn.execute("DELETE FROM events_fts")
+        self.conn.execute("DELETE FROM closures")
+        self.conn.execute("DELETE FROM snapshots")
+        self.conn.execute("DELETE FROM snapshot_state")
         self._insert(lines, events, 0, n)
         self._set("line_count", str(n))
         self._set("chain_head", integrity.chain_head(lines[:n]))
@@ -195,6 +221,25 @@ class Projection:
                                 "ORDER BY line_no", params + list(ids))
         return [AetherEvent.model_validate_json(r[0]) for r in cur.fetchall()]
 
+    # --- snapshots + as-of (Phase 3) ---
+    def take_snapshot(self, at) -> int:
+        """Fige l'etat ACTIF au temps valide `at` (oracle pur `memory.as_of` sur tout le journal
+        projete, connaissance ACTUELLE des clotures). Refigeable a l'identique (ne derive que du
+        journal) ; `line_count` = watermark courant (provenance). Retourne le nb d'ids figes."""
+        iso = _iso(at)
+        evs = [AetherEvent.model_validate_json(r[0])
+               for r in self.conn.execute("SELECT raw FROM events ORDER BY line_no").fetchall()]
+        ids = [e.id for e in memory.as_of(evs, at)]
+        self.conn.execute("DELETE FROM snapshot_state WHERE ts=?", (iso,))
+        self.conn.execute("INSERT OR REPLACE INTO snapshots (ts, line_count, created_at) "
+                          "VALUES (?,?,?)",
+                          (iso, int(self._get("line_count", "0")),
+                           datetime.now(timezone.utc).isoformat()))
+        self.conn.executemany("INSERT INTO snapshot_state (ts, id) VALUES (?,?)",
+                              [(iso, i) for i in ids])
+        self.conn.commit()
+        return len(ids)
+
     # --- requetes ---
     def search(self, term: str) -> List[str]:
         cur = self.conn.execute("SELECT id FROM events WHERE lower(text) LIKE ? ORDER BY line_no",
@@ -202,10 +247,14 @@ class Projection:
         return [r[0] for r in cur.fetchall()]
 
     def state_hash(self) -> str:
-        """Hash deterministe du row-set (preuve d'egalite incremental vs batch). Ignore l'ordre d'insertion."""
-        cur = self.conn.execute(f"SELECT {_COLS} FROM events ORDER BY line_no")
+        """Hash deterministe du row-set (preuve d'egalite incremental vs batch). Ignore l'ordre
+        d'insertion. Couvre events + closures (derives du journal) ; PAS les snapshots (etat
+        d'exploitation fige par l'operateur, pas un fold — verify doit passer avec ou sans)."""
         h = hashlib.sha256()
-        for r in cur.fetchall():
+        for r in self.conn.execute(f"SELECT {_COLS} FROM events ORDER BY line_no").fetchall():
+            h.update(json.dumps(r, ensure_ascii=False, sort_keys=True).encode("utf-8"))
+        for r in self.conn.execute("SELECT target_id, corr_id FROM closures "
+                                   "ORDER BY target_id, corr_id").fetchall():
             h.update(json.dumps(r, ensure_ascii=False, sort_keys=True).encode("utf-8"))
         return h.hexdigest()
 
@@ -249,6 +298,29 @@ def recall_semantic_sql(proj: Projection, query: str, embedder, store, m: int = 
 def brief_sql(proj: Projection, query: str, k: int = 5, as_of=None):
     """`memory.topic_brief` servi par la projection (compose recall : memes candidats). LECTURE SEULE."""
     return memory.topic_brief(proj.events_for_recall(query), query, k=k, as_of=as_of)
+
+
+def as_of_sql(proj: Projection, at) -> List[AetherEvent]:
+    """Etat actif au temps valide `at` servi par la projection (design par.3 : snapshot le plus
+    proche <= at + DELTA + OVERLAY des corrections). Candidats = ids du snapshot + delta par
+    TEMPS VALIDE (valid_from dans (ts, at] — pas par ligne : un event retro/futur-date appende
+    tot reste attrape) + toutes les corrections + leurs CIBLES (une cloture elle-meme close
+    ressuscite sa cible : la cible doit rester candidate). Sur-ensemble de l'etat actif par
+    construction (les clotures ne font qu'avancer) -> le PUR `memory.as_of` tranche et l'egalite
+    oracle tient. Sans snapshot <= at : fold pur sur toute la table. LECTURE SEULE."""
+    asof = memory._aware(at) or datetime.now(timezone.utc)
+    iso = _iso(asof)
+    row = proj.conn.execute("SELECT ts FROM snapshots WHERE ts <= ? ORDER BY ts DESC LIMIT 1",
+                            (iso,)).fetchone()
+    if row is None:
+        cur = proj.conn.execute("SELECT raw FROM events ORDER BY line_no")
+    else:
+        cur = proj.conn.execute(
+            "SELECT raw FROM events WHERE id IN (SELECT id FROM snapshot_state WHERE ts=?) "
+            "OR (valid_from > ? AND valid_from <= ?) OR type='correction' "
+            "OR id IN (SELECT target_id FROM closures) ORDER BY line_no",
+            (row[0], row[0], iso))
+    return memory.as_of([AetherEvent.model_validate_json(r[0]) for r in cur.fetchall()], asof)
 
 
 def verify_projection(journal, proj: Projection) -> bool:
