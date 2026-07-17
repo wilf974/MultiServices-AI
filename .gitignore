@@ -23,6 +23,17 @@ MultiService-IA-Vault/
 CLAUDE.md
 docs/DECISIONS.md
 
+# Scripts perso (host/port/user VPS en dur, coordonnées LAN/SSH) — automatisation locale, JAMAIS publier
+scripts/sync_memory_merge.ps1
+scripts/sync_memory_scheduled.ps1
+scripts/sync_memory_to_vps.ps1
+scripts/gpu-tunnel.ps1
+scripts/git-commit-*.log
+scripts/git-commit-session.ps1
+
+# Artefacts d'outillage local (peuvent contenir des chemins/traces perso)
+.claude-flow/
+
 # READMEs vestiges de scaffolding (chemins perso + nom de modèle) — supprimés, ne pas re-committer
 README-MCP.md
 README-SPRINT13.md
