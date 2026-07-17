@@ -5,7 +5,8 @@ set -euo pipefail
 CN="${1:?usage: gen-mtls.sh <CN> [source]}"
 SRC="${2:-project:$CN}"
 CADIR="/etc/nginx/mtls/mem"
-OUT="/home/<user>/mem-secrets/clients/$CN"
+SECRETS="${MEM_SECRETS_DIR:-$HOME/mem-secrets}"   # lance en root : exporter MEM_SECRETS_DIR=/home/<compte>/mem-secrets
+OUT="$SECRETS/clients/$CN"
 mkdir -p "$CADIR" "$OUT"
 
 if [ ! -f "$CADIR/ca.crt" ]; then
@@ -24,5 +25,5 @@ rm -f "$OUT/client.csr"
 HMAC=$(openssl rand -hex 32)
 echo "$HMAC" > "$OUT/hmac.key"
 echo "--- Cert client + cle HMAC dans $OUT ---"
-echo "Entree registre a ajouter dans /home/<user>/mem-secrets/ingest-clients.json :"
+echo "Entree registre a ajouter dans $SECRETS/ingest-clients.json :"
 echo "  \"$CN\": { \"source\": \"$SRC\", \"hmac_key\": \"$HMAC\" }"

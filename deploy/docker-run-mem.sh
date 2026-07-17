@@ -7,7 +7,7 @@ set -euo pipefail
 docker rm -f mem-mcp 2>/dev/null || true
 docker run -d --name mem-mcp --restart unless-stopped \
   -p 127.0.0.1:8302:8302 \
-  -v /home/<user>/.aethercore:/data:ro \
+  -v "$HOME/.aethercore":/data:ro \
   -e MULTISERVICE_JOURNAL=/data/journal-llm.jsonl \
   -e MULTISERVICE_CACHE=/data/cache-llm.jsonl \
   -e MULTISERVICE_SEMCACHE=/data/semcache-llm.jsonl \

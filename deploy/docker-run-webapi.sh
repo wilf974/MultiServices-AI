@@ -4,8 +4,8 @@ set -euo pipefail
 docker rm -f mem-api 2>/dev/null || true
 docker run -d --name mem-api --restart unless-stopped \
   -p 127.0.0.1:8304:8304 \
-  -v /home/<user>/.aethercore:/data \
-  -v /home/<user>/mem-secrets:/secrets:ro \
+  -v "$HOME/.aethercore":/data \
+  -v "${MEM_SECRETS_DIR:-$HOME/mem-secrets}":/secrets:ro \
   -e MULTISERVICE_JOURNAL=/data/journal-llm.jsonl \
   -e MULTISERVICE_WEBAPI_TOKENS=/secrets/webapi-tokens.json \
   -e MULTISERVICE_WEBAPI_ENABLE=1 \
