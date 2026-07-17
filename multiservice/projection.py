@@ -56,6 +56,8 @@ class Projection:
 
     def __init__(self, db_path: str | Path) -> None:
         self.db_path = db_path
+        if str(db_path) != ":memory:":
+            Path(db_path).parent.mkdir(parents=True, exist_ok=True)   # sqlite ne cree pas les parents
         self.conn = sqlite3.connect(str(db_path))
         self.conn.execute("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)")
         if self._get("schema") != _SCHEMA:               # base d'un schema anterieur (P0) : la projection

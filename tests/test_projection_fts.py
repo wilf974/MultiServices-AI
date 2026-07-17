@@ -158,6 +158,16 @@ def test_for_journal_ouvre_et_rattrape_le_journal(tmp_path):
     assert journal.read_bytes() == avant                             # structurel : JAMAIS d'ecriture journal
 
 
+def test_projection_cree_le_dossier_parent(tmp_path):
+    # cas conteneur : ~/.aethercore n'existe pas encore la ou vit la projection (journal monte
+    # ailleurs en :ro). sqlite ne cree pas les parents -> Projection doit le faire.
+    journal = tmp_path / "j.jsonl"
+    _corpus(journal)
+    db = tmp_path / "pas" / "encore" / "la" / "proj.db"
+    p = projection.for_journal(journal, db)
+    assert projection.recall_sql(p, "moteur") == memory.recall(read_events(journal), "moteur")
+
+
 def test_journal_vide_et_requete_vide(tmp_path):
     journal = tmp_path / "j.jsonl"
     p = _proj(tmp_path, journal)
