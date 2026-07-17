@@ -1,6 +1,6 @@
 # Passage à l'échelle — projections sans renier « journal = vérité, fonctions pures »
 
-> Statut : **P0 + PHASE 1 IMPLÉMENTÉS** (`multiservice/projection.py`, TDD, 16 tests, suite 441 verte).
+> Statut : **P0 + PHASE 1 + PHASE 2 IMPLÉMENTÉS** (`multiservice/projection.py` + `multiservice/project.py`, TDD, suite 451 verte).
 > P0 : matérialisation SQLite reconstructible, watermark `(line_count, chain_head)` soudé à `integrity.py`
 > (préfixe falsifié → rebuild forcé), `search` lexical, `verify_projection` (oracle vs fonction pure).
 > Phase 1 (17/07/2026) : **FTS5 trigram sur texte normalisé = PRÉFILTRE sur-ensemble** ; les fonctions
@@ -8,6 +8,11 @@
 > liste d'events fournie (candidats + toutes les corrections C3), d'où l'égalité oracle par construction.
 > Routage : `recall_sql`/`recent_sql`/`brief_sql` + `for_journal` ; surface MCP branchée (repli
 > fonctions pures si projection indisponible). Vérifié sur le journal réel (2 621 events, oracle ÉGAL).
+> Phase 2 (17/07/2026) : **updater incrémental hors du chemin de lecture** — `python -m
+> multiservice.project` (one-shot post-append, `--status`/`--rebuild`/`--verify` CI avec code retour,
+> `--watch` tail-watcher qui ne relit le journal que si son stat (taille, mtime) change). Tamper
+> pendant le watch → rebuild forcé (hérité de `Projection.update`) ; l'updater n'écrit JAMAIS le
+> journal (test). Smoke réel : rattrapage 2 621 lignes, `--verify` OK, statut FRESH.
 > **Différé** : sqlite-vec en **binaire + re-score** (décision `0407c17a`, 17/07), snapshots/as-of.
 > Design issu d'un aller-retour Fable 5 (architecte) ↔ Claude (critique + ancrage code), 2026-07-07.
 > Invariants de `CLAUDE.md` : journal append-only source unique, tout dérivé reconstructible,
@@ -68,7 +73,8 @@ tourner **en CI**.
 - **Phase 0** : `read_events()` reste le fallback.
 - **Phase 1** : construire la projection SQLite **une fois** ; router `recall`/`recent`/`brief` vers SQL ;
   les fonctions pures servent d'**oracle** (test : résultat SQL == résultat fonction pure sur le même journal).
-- **Phase 2** : updater incrémental (commande `project` post-append, ou tail-watcher).
+- **Phase 2** : updater incrémental (commande `project` post-append, ou tail-watcher). **FAIT** :
+  `multiservice/project.py` (`run_once`/`status`/`watch` + CLI, 9 tests).
 - **Phase 3** : snapshots pour `as-of`.
 
 ## 5. Plan de test (vérifiable)
