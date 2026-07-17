@@ -61,6 +61,14 @@ SKILLS_DIR = os.environ.get(
     str(Path.home() / ".aethercore" / "skills"),
 )
 
+# Chiffrement au repos (opt-in, forward-only) : 1 -> append chiffre / read dechiffre par defaut.
+# Le keyring (master + slots + wrapped_dek) vit HORS-journal ; le perdre = perdre le clair.
+ENCRYPT_AT_REST = os.environ.get("MULTISERVICE_ENCRYPT", "") == "1"
+KEYRING_DIR = os.environ.get(
+    "MULTISERVICE_KEYRING",
+    str(Path(AETHER_HOME) / "keyring"),
+)
+
 # Cloture C3 du contexte (S16) : nb de tours recents gardes en clair (qualite vs economie).
 KEEP_TURNS = int(os.environ.get("MULTISERVICE_KEEP_TURNS", "6"))
 

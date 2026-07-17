@@ -65,7 +65,10 @@ class FileKeyStore:
     def destroy_dek(self, event_id: str) -> None:
         try:
             self._p(event_id).unlink()                    # unlink missing-ok -> idempotent
-        except FileNotFoundError:
+        except OSError:
+            # FileNotFoundError, mais aussi WinError 123 : `destroy(target)` essaie les deux namespaces,
+            # et un slot_id (avec `:`) est un nom de fichier INVALIDE sur Windows -> il ne peut pas
+            # exister comme dek (put_dek aurait echoue pareil), donc missing-ok s'applique.
             pass
 
     def present_deks(self) -> Set[str]:

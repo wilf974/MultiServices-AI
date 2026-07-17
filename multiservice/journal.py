@@ -50,8 +50,42 @@ def _file_lock(target: Path, timeout: float = 10.0, stale: float = 60.0):
             pass
 
 
-def append_events(path: str | Path, events: List[AetherEvent]) -> int:
-    """Ajoute des evenements en fin de journal (sous verrou, en UNE ecriture). Retourne le nombre ecrit."""
+_AUTO = object()          # sentinelle : keyring pilote par config.ENCRYPT_AT_REST (opt-in global)
+
+# Intents d'audit JAMAIS chiffres : les chiffrer sous le slot qu'ils effacent/migrent detruirait
+# la trace en meme temps que la cle (verify_keyring crierait « censure » sur un effacement legitime).
+_CLEAR_TYPES = frozenset({"erasure", "migration"})
+
+
+def _config_keyring():
+    """KeyManager par defaut si l'opt-in chiffrement est actif, sinon None. Lu a l'appel (testable)."""
+    from . import config
+    if not config.ENCRYPT_AT_REST:
+        return None
+    from .keyring import KeyManager
+    return KeyManager()
+
+
+def default_slot(e: AetherEvent) -> str:
+    """Slot-par-source (defaut du design) : effacement gros = toute une source/personne."""
+    return f"slot:{e.source}"
+
+
+def append_events(path: str | Path, events: List[AetherEvent], *, keyring=_AUTO, slot_for=None) -> int:
+    """Ajoute des evenements en fin de journal (sous verrou, en UNE ecriture). Retourne le nombre ecrit.
+
+    Opt-in chiffrement (choke point) : si un keyring est actif (config.ENCRYPT_AT_REST ou `keyring`
+    explicite), chaque event est chiffre AVANT serialisation (slot-par-source par defaut). Restent en
+    clair : les events deja chiffres par l'appelant et les intents d'audit (`erasure`/`migration`).
+    `keyring=None` force l'ecriture brute."""
+    if keyring is _AUTO:
+        keyring = _config_keyring()
+    if keyring is not None:
+        from . import envelope
+        from .encrypt import encrypt_event
+        slot_for = slot_for or default_slot
+        events = [e if envelope.is_encrypted(e) or e.type.value in _CLEAR_TYPES
+                  else encrypt_event(e, slot_for(e), keyring) for e in events]
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     blob = "".join(e.model_dump_json() + "\n" for e in events)
@@ -62,13 +96,16 @@ def append_events(path: str | Path, events: List[AetherEvent]) -> int:
     return len(events)
 
 
-def read_events(path: str | Path, *, keyring=None) -> List[AetherEvent]:
+def read_events(path: str | Path, *, keyring=_AUTO) -> List[AetherEvent]:
     """Relit le journal (pour tests / replay). Vide si absent. Tolere une DERNIERE ligne partielle
     (ecriture concurrente en cours) ; leve sur une ligne corrompue AU MILIEU (jamais masquee).
 
-    `keyring` (opt-in) : si fourni, chaque event chiffre est dechiffre (ou rendu en tombstone si sa cle a
-    ete shreddee, cf. `encrypt.decrypt_or_tombstone`). Defaut None -> comportement inchange (les events
-    chiffres restent chiffres). Forward-only : un journal en clair n'est pas affecte."""
+    `keyring` : par defaut, pilote par config.ENCRYPT_AT_REST (opt-in global) — si actif, chaque event
+    chiffre est dechiffre (ou rendu en tombstone si sa cle a ete shreddee, cf.
+    `encrypt.decrypt_or_tombstone`). `keyring=None` force la lecture BRUTE (les events chiffres restent
+    chiffres) ; un KeyManager explicite outrepasse la config. Un journal en clair n'est jamais affecte."""
+    if keyring is _AUTO:
+        keyring = _config_keyring()
     p = Path(path)
     if not p.exists():
         return []

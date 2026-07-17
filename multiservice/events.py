@@ -40,6 +40,7 @@ class EventType(str, Enum):
     VALIDATION = "validation"
     # --- gouvernance : intent d'effacement RGPD (crypto-shred, cf. docs/ENCRYPTION-AT-REST.md) ---
     ERASURE = "erasure"
+    MIGRATION = "migration"
 
 
 # Le perimetre EXACT capture par le Sprint 13 (capture seule).

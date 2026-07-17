@@ -28,7 +28,7 @@ class KeyManager:
     """Facade sur master + slots (keyring) + deks (KeyStore). C'est le `kr` du design."""
 
     def __init__(self, base: str | Path | None = None, keystore=None) -> None:
-        self.base = Path(base) if base is not None else Path(config.AETHER_HOME) / "keyring"
+        self.base = Path(base) if base is not None else Path(config.KEYRING_DIR)
         self.master_path = self.base / "master.key"
         self.slots_dir = self.base / "slots"
         self.keystore = keystore or FileKeyStore(self.base)

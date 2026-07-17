@@ -1,8 +1,13 @@
 # Chiffrement au repos + crypto-shredding (RGPD art.17) — design durable
 
-> Statut : **P0 IMPLÉMENTÉ** (TDD, 18 tests, suite 422 verte) — commit `36db055`. Non branché par
-> défaut (`decrypt_or_tombstone` opt-in, migration forward-only). `read_events(path, keyring=...)` **branché** (opt-in, décryptage/tombstone).
-> Reste : CLI `encrypt_migrate`, `LogKeyStore` à l'échelle. Design issu d'un aller-retour
+> Statut : **BRANCHÉ DE BOUT EN BOUT** (17/07/2026, TDD, 10 tests ajoutés, suite 481 verte).
+> Opt-in `MULTISERVICE_ENCRYPT=1` au **choke point `journal.py`** : `append_events` chiffre à
+> l'écriture (slot-par-source, intents `erasure`/`migration` toujours en clair), `read_events`
+> déchiffre par défaut (`keyring=None` force le brut) — les ~40 call sites sont inchangés.
+> CLI **`python -m multiservice.encrypt_migrate`** : dry-run par défaut ; `--bulk --yes` (C1) =
+> re-chiffre le stock, event `migration` en clair, backup `.pre-encrypt.bak`, chaîne rebaselinée.
+> P0 d'origine : commit `36db055` (18 tests, 422 verte).
+> Reste : `LogKeyStore` à l'échelle (seuil ~10k). Design issu d'un aller-retour
 > Fable 5 (architecte) ↔ Claude (critique + ancrage code), 2026-07-07.
 > Respecte les invariants de `CLAUDE.md` : append-only, bi-temporel (C3), provenance (C2),
 > lecture pure, souveraineté locale, chaîne de hachage tamper-evident (`integrity.py`).
