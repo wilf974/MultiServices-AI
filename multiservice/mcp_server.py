@@ -58,9 +58,12 @@ def build_server(journal_path: str = None):
         from .semantic import EmbeddingStore, OllamaEmbedder
         store = EmbeddingStore(config.EMBED_PATH)
         embedder = OllamaEmbedder(model=config.EMBED_MODEL, host=config.OLLAMA_HOST)
-        return memory.recall_semantic(read_events(jp), query, embedder, store, k=k,
-                                      type_=(type or None), source_prefix=(source or None),
-                                      explain=explain, min_fused=min_fused, sem_weight=sem_weight)
+        kw = dict(k=k, type_=(type or None), source_prefix=(source or None),
+                  explain=explain, min_fused=min_fused, sem_weight=sem_weight)
+        p = _proj()
+        if p is not None:
+            return projection.recall_semantic_sql(p, query, embedder, store, **kw)
+        return memory.recall_semantic(read_events(jp), query, embedder, store, **kw)
 
     @srv.tool()
     def replay(session_id: str, digest: bool = True):

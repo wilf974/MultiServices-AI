@@ -1,6 +1,6 @@
 # Passage à l'échelle — projections sans renier « journal = vérité, fonctions pures »
 
-> Statut : **P0 + PHASE 1 + PHASE 2 IMPLÉMENTÉS** (`multiservice/projection.py` + `multiservice/project.py`, TDD, suite 451 verte).
+> Statut : **P0 + PHASE 1 + PHASE 2 + VECTORIEL BINAIRE IMPLÉMENTÉS** (`multiservice/projection.py` + `multiservice/project.py`, TDD, suite 461 verte).
 > P0 : matérialisation SQLite reconstructible, watermark `(line_count, chain_head)` soudé à `integrity.py`
 > (préfixe falsifié → rebuild forcé), `search` lexical, `verify_projection` (oracle vs fonction pure).
 > Phase 1 (17/07/2026) : **FTS5 trigram sur texte normalisé = PRÉFILTRE sur-ensemble** ; les fonctions
@@ -13,7 +13,17 @@
 > `--watch` tail-watcher qui ne relit le journal que si son stat (taille, mtime) change). Tamper
 > pendant le watch → rebuild forcé (hérité de `Projection.update`) ; l'updater n'écrit JAMAIS le
 > journal (test). Smoke réel : rattrapage 2 621 lignes, `--verify` OK, statut FRESH.
-> **Différé** : sqlite-vec en **binaire + re-score** (décision `0407c17a`, 17/07), snapshots/as-of.
+> Vectoriel binaire (17/07/2026, décision `0407c17a`, **local only**) : table `vecs(id, bits)` =
+> quantization binaire maison (1 bit/dim signe, 128 o/vecteur, XOR+popcount pur Python — **sans
+> sqlite-vec** : zéro dépendance native, brute-force en millisecondes à notre échelle). Le jsonl
+> `EmbeddingStore` **garde les float32** (vérité reconstructible) ; le top-M Hamming n'est qu'un
+> préfiltre de plus (union candidats FTS ∪ top-M ∪ corrections C3), re-score float32 dans le pur
+> (`qvec` réutilisé, une seule passe d'embedding). **Calibré sur le réel** (2 379 vecteurs bge-m3,
+> 100 requêtes) : recall@10 dans le top-M = 96,3 % (M=40) · **99,1 % (M=80, défaut)** · 99,5 %
+> (M=120) ; préfiltre 2,9 ms vs 182 ms de cosinus exact (×63). `evict` (crypto-shredding RGPD)
+> **propagé** par `sync_vectors` (les bits dérivent du clair effacé). Sync : `python -m
+> multiservice.project --vectors` après `python -m multiservice.index`. Surface MCP branchée.
+> **Différé** : snapshots/as-of (Phase 3).
 > Design issu d'un aller-retour Fable 5 (architecte) ↔ Claude (critique + ancrage code), 2026-07-07.
 > Invariants de `CLAUDE.md` : journal append-only source unique, tout dérivé reconstructible,
 > lecture pure, bi-temporalité (C3), souveraineté locale, chaîne de hachage (`integrity.py`).

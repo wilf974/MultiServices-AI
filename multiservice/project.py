@@ -80,7 +80,16 @@ def main(argv=None) -> None:
     ap.add_argument("--verify", action="store_true", help="oracle : recompute from scratch et compare (CI)")
     ap.add_argument("--watch", action="store_true", help="tail-watcher (poll)")
     ap.add_argument("--interval", type=float, default=2.0, help="periode de poll du watch (s)")
+    ap.add_argument("--vectors", action="store_true",
+                    help="synchronise le canal vectoriel binaire depuis le store d'embeddings "
+                         "(local only ; a lancer apres `python -m multiservice.index`)")
+    ap.add_argument("--embed", default=config.EMBED_PATH, help="store d'embeddings float32 (jsonl)")
     a = ap.parse_args(argv)
+    if a.vectors:
+        from .semantic import EmbeddingStore
+        r = Projection(a.db).sync_vectors(EmbeddingStore(a.embed))
+        print(f"[project] vectors : added={r['added']} removed={r['removed']} total={r['total']}")
+        return
     if a.status:
         s = status(a.journal, a.db)
         tag = "FRESH" if s["fresh"] else ("TAMPER" if not s["prefix_ok"] else "STALE")

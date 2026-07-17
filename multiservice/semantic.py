@@ -35,6 +35,22 @@ def cosine(a: Sequence[float], b: Sequence[float]) -> float:
     return dot / (na * nb)
 
 
+def pack_bits(vec: Sequence[float]) -> bytes:
+    """Quantization BINAIRE (decision 0407c17a) : 1 bit/dim, signe (> 0). PUR.
+    bge-m3 1024d float32 (4 Ko) -> 128 octets (x32). Le float32 reste la verite (EmbeddingStore) ;
+    les bits ne servent qu'au PREFILTRE Hamming, toujours re-score en float32 derriere."""
+    out = bytearray((len(vec) + 7) // 8)
+    for i, x in enumerate(vec):
+        if x > 0:
+            out[i >> 3] |= 128 >> (i & 7)
+    return bytes(out)
+
+
+def hamming(a: bytes, b: bytes) -> int:
+    """Distance de Hamming entre deux vecteurs packes (tailles egales attendues). PUR, XOR+popcount."""
+    return (int.from_bytes(a, "big") ^ int.from_bytes(b, "big")).bit_count()
+
+
 class FakeEmbedder:
     """Embedder deterministe pour tests (sac de caracteres sur dim dimensions). PUR."""
 

@@ -763,10 +763,12 @@ def recall_semantic(events: List[AetherEvent], query: str, embedder, store,
                     as_of: Optional[datetime] = None, k: int = 10,
                     type_: Optional[str] = None, source_prefix: Optional[str] = None,
                     explain: bool = False, min_fused: float = 0.0,
-                    sem_weight: float = 0.5) -> List[Dict[str, Any]]:
+                    sem_weight: float = 0.5,
+                    qvec: Optional[List[float]] = None) -> List[Dict[str, Any]]:
     """Recall HYBRIDE = CANAL N.2 (ne remplace pas le lexical). Porte bi-temporelle (C3)
     decisionnelle, puis FUSION 50/50 de la couverture lexicale [0,1] et du cosinus semantique.
     'min_fused' = plancher de pertinence (etouffe le bruit). 'explain' detaille les scores.
+    'qvec' (opt) = embedding de la requete deja calcule (evite une 2e passe d'embedder).
     Repli lexical si pas d'index. LECTURE SEULE."""
     from .semantic import cosine
     asof = _aware(as_of) or datetime.now(timezone.utc)
@@ -789,7 +791,8 @@ def recall_semantic(events: List[AetherEvent], query: str, embedder, store,
             cand.append((e, vecs[e.id]))
     if not cand:                                         # pas d'index -> repli lexical pur
         return recall(events, query, as_of=as_of, k=k, type_=type_, source_prefix=source_prefix)
-    qvec = embedder.embed([query])[0]
+    if qvec is None:
+        qvec = embedder.embed([query])[0]
     hits = []
     for e, vec in cand:
         sem_n = max(0.0, cosine(qvec, vec))

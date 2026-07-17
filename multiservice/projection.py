@@ -11,7 +11,13 @@ P1 (Phase 1) = FTS5 (trigram sur texte NORMALISE, accent-insensible) comme PREFI
 routage `recall`/`recent`/`brief` vers SQL (`recall_sql`/`recent_sql`/`brief_sql`). Les fonctions pures
 de `memory` restent LE moteur semantique : le SQL ne fait que restreindre la liste d'events qu'on leur
 donne (candidats FTS + toutes les corrections C3), d'ou l'egalite ORACLE par construction.
-DIFFERE : sqlite-vec (binaire+re-score, decision 0407c17a), snapshots/as-of.
+Canal VECTORIEL BINAIRE (decision 0407c17a, LOCAL ONLY) : table `vecs(id, bits)` = quantization
+binaire (128 o/vecteur bge-m3) synchronisee depuis l'EmbeddingStore (qui GARDE les float32, verite
+reconstructible). Le top-M Hamming n'est qu'un PREFILTRE de plus (union candidats FTS + top-M +
+corrections) ; le re-score float32 reste dans `memory.recall_semantic` (pur). Approximation assumee
+et CALIBREE SUR LE REEL (2379 vecteurs bge-m3, 100 requetes) : recall@10 dans le top-M binaire =
+96.3% a M=40, 99.1% a M=80 (defaut), 99.5% a M=120 ; prefiltre 2.9ms vs 182ms cosinus exact (x63).
+`evict` (crypto-shredding) PROPAGE au sync (les bits derivent du clair). DIFFERE : snapshots/as-of.
 """
 from __future__ import annotations
 
@@ -25,10 +31,11 @@ from typing import List
 from . import integrity, memory
 from .events import AetherEvent
 from .journal import read_events
+from .semantic import hamming, pack_bits
 from .skills import _norm, _tokens
 
 _COLS = "line_no,id,type,source,text,valid_from,valid_to,raw"
-_SCHEMA = "2"                       # P1 : colonne raw + FTS5 trigram + valid_from normalise UTC
+_SCHEMA = "3"                       # v3 : table vecs (canal binaire) ; v2 : raw + FTS5 + UTC
 
 
 def _iso(dt):
@@ -60,9 +67,10 @@ class Projection:
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)   # sqlite ne cree pas les parents
         self.conn = sqlite3.connect(str(db_path))
         self.conn.execute("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)")
-        if self._get("schema") != _SCHEMA:               # base d'un schema anterieur (P0) : la projection
+        if self._get("schema") != _SCHEMA:               # base d'un schema anterieur : la projection
             self.conn.execute("DROP TABLE IF EXISTS events")      # est un derive -> on jette et on
             self.conn.execute("DROP TABLE IF EXISTS events_fts")  # reconstruira depuis le journal-verite
+            self.conn.execute("DROP TABLE IF EXISTS vecs")        # (et le store d'embeddings pour vecs)
             self.conn.execute("DELETE FROM meta")
             self._set("schema", _SCHEMA)
         self.conn.execute("CREATE TABLE IF NOT EXISTS events ("
@@ -70,6 +78,7 @@ class Projection:
                           "text TEXT, valid_from TEXT, valid_to TEXT, raw TEXT)")
         self.conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS events_fts "
                           "USING fts5(ntext, tokenize='trigram')")   # trigram = parite sous-chaine avec _score
+        self.conn.execute("CREATE TABLE IF NOT EXISTS vecs (id TEXT PRIMARY KEY, bits BLOB)")
         self.conn.commit()
 
     # --- watermark ---
@@ -155,6 +164,37 @@ class Projection:
                                 "ORDER BY line_no", (start_iso, end_iso))
         return [AetherEvent.model_validate_json(r[0]) for r in cur.fetchall()]
 
+    # --- canal vectoriel binaire (decision 0407c17a, local only) ---
+    def sync_vectors(self, store) -> dict:
+        """Reconcilie `vecs` avec l'EmbeddingStore (verite float32) : ajoute les bits manquants,
+        RETIRE ceux dont le vecteur a disparu (evict / crypto-shredding : les bits derivent du
+        clair efface, ils ne doivent pas survivre)."""
+        vecs = store.load()
+        have = {r[0] for r in self.conn.execute("SELECT id FROM vecs")}
+        add = [(i, pack_bits(v)) for i, v in vecs.items() if i not in have]
+        gone = [(i,) for i in have if i not in vecs]
+        self.conn.executemany("INSERT INTO vecs (id, bits) VALUES (?,?)", add)
+        self.conn.executemany("DELETE FROM vecs WHERE id=?", gone)
+        self.conn.commit()
+        return {"added": len(add), "removed": len(gone), "total": len(vecs)}
+
+    def topk_hamming(self, qbits: bytes, m: int) -> List[str]:
+        """Les M ids les plus proches en Hamming (XOR+popcount, brute-force : millisecondes a
+        notre echelle, 128 o/vecteur). PREFILTRE approximatif, jamais decisionnaire."""
+        rows = self.conn.execute("SELECT id, bits FROM vecs").fetchall()
+        return [i for _, i in sorted((hamming(qbits, b), i) for i, b in rows)[:m]]
+
+    def events_for_semantic(self, query: str, ids: List[str]) -> List[AetherEvent]:
+        """Events a donner a `recall_semantic` PUR : candidats FTS (canal lexical, sur-ensemble
+        exact) + top-M binaire (canal semantique, approx) + corrections C3. Ordre journal."""
+        where, params = self._candidate_where(query)
+        in_ids = ""
+        if ids:
+            in_ids = " OR id IN (%s)" % ",".join("?" for _ in ids)
+        cur = self.conn.execute(f"SELECT raw FROM events WHERE {where} OR type='correction'{in_ids} "
+                                "ORDER BY line_no", params + list(ids))
+        return [AetherEvent.model_validate_json(r[0]) for r in cur.fetchall()]
+
     # --- requetes ---
     def search(self, term: str) -> List[str]:
         cur = self.conn.execute("SELECT id FROM events WHERE lower(text) LIKE ? ORDER BY line_no",
@@ -193,6 +233,17 @@ def recent_sql(proj: Projection, days: int = 7, now=None, **kw):
     evs = proj.events_window(cutoff.astimezone(timezone.utc).isoformat(),
                              n.astimezone(timezone.utc).isoformat())
     return memory.recent(evs, days=days, now=n, **kw)
+
+
+def recall_semantic_sql(proj: Projection, query: str, embedder, store, m: int = 80, **kw):
+    """`memory.recall_semantic` servi par la projection : une seule passe d'embedding (le qvec du
+    prefiltre Hamming est REUTILISE au re-score float32 du pur). M (>> k) borne l'approximation
+    (defaut 80 = 99.1% de recall@10 mesure sur le corpus reel, re-score ~6ms) ;
+    M >= corpus indexe -> egalite oracle par construction. LECTURE SEULE."""
+    qvec = embedder.embed([query])[0]
+    ids = proj.topk_hamming(pack_bits(qvec), m)
+    return memory.recall_semantic(proj.events_for_semantic(query, ids), query, embedder, store,
+                                  qvec=qvec, **kw)
 
 
 def brief_sql(proj: Projection, query: str, k: int = 5, as_of=None):
