@@ -10,9 +10,17 @@ import os
 
 from cryptography.exceptions import InvalidTag as _InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 NONCE = 12
 KEY = 32
+SALT = 16
+
+# scrypt : couteux en MEMOIRE, donc resistant au materiel dedie (GPU/ASIC) — ce qu'un simple
+# hachage iteratif n'est pas. Parametres interactifs recommandes (~64 Mo, quelques dixiemes de s).
+SCRYPT_N = 2 ** 16
+SCRYPT_R = 8
+SCRYPT_P = 1
 
 InvalidTag = _InvalidTag           # re-export : le reste du code attrape `crypto.InvalidTag`
 
@@ -25,6 +33,20 @@ def gen_key() -> bytes:
 
 def gen_nonce() -> bytes:
     return os.urandom(NONCE)
+
+
+def gen_salt() -> bytes:
+    return os.urandom(SALT)
+
+
+def derive_key(passphrase: str, salt: bytes, n: int = SCRYPT_N, r: int = SCRYPT_R,
+               p: int = SCRYPT_P) -> bytes:
+    """Derive une cle de 32 octets depuis une PASSPHRASE humaine (scrypt). Sel obligatoire.
+
+    Sert la sauvegarde hors-ligne du keyring : une passphrase memorisable protege un bundle
+    stockable n'importe ou. Les parametres voyagent avec le bundle pour rester dechiffrable
+    si les defauts changent."""
+    return Scrypt(salt=salt, length=KEY, n=n, r=r, p=p).derive(passphrase.encode("utf-8"))
 
 
 def aead_encrypt(key: bytes, nonce: bytes, pt: bytes, aad: bytes) -> bytes:
