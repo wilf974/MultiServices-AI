@@ -101,6 +101,30 @@ def test_sortie_bornee_compteurs_complets():
     assert r["truncated"] is True
 
 
+def test_revue_par_projet_sur_un_poste_multi_projets():
+    """Defaut observe sur le journal reel (24/07/2026) : toutes les decisions d'un poste
+    tombent dans UNE source (`project:maison`), donc `project_review('MultiService')`
+    renvoyait 0 alors que les decisions existaient. Le projet vit dans la session."""
+    evs = [
+        _ev(EventType.DECISION, "chiffrement au repos branche", T0, "multiservice-chiffrement", src="project:maison"),
+        _ev(EventType.DECISION, "projection SQLite FTS5", T0, "multiservice-scaling", src="project:maison"),
+        _ev(EventType.DECISION, "miniatures boutique en prod", T0, "logos", src="project:maison"),
+    ]
+    r = project_review(evs, "project:multiservice", now=NOW)
+    assert r["counts"]["decisions_valides"] == 2          # les deux chantiers MultiService
+    assert "miniatures" not in str(r)                     # l'autre projet du meme poste exclu
+
+
+def test_revue_par_source_reste_intacte():
+    """RETRO-COMPAT : filtrer par source continue de tout ramener pour ce poste."""
+    evs = [
+        _ev(EventType.DECISION, "chiffrement au repos branche", T0, "multiservice-chiffrement", src="project:maison"),
+        _ev(EventType.DECISION, "miniatures boutique en prod", T0, "logos", src="project:maison"),
+    ]
+    r = project_review(evs, "project:maison", now=NOW)
+    assert r["counts"]["decisions_valides"] == 2
+
+
 def test_fenetre_days_ne_garde_que_le_recent():
     evs = [
         _ev(EventType.VALIDATION, "vieille validation", NOW - timedelta(days=40), "vieux"),

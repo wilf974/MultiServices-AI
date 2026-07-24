@@ -93,3 +93,19 @@ def test_lecture_prefixe_large_inchange(tmp_path):
         session_id="b", now=T0)
     hits = recall(read_events(jp), "fait", source_prefix="project")
     assert len(hits) == 2
+
+
+def test_recall_filtrable_par_projet_dans_un_seau_de_poste(tmp_path):
+    """Suite doctrinale du registre d'alias : la source dit D'OU on ecrit (CN du cert), le
+    PROJET vit dans la session. Un recall filtre par projet doit trancher DANS le seau du poste,
+    sans jamais reecrire le journal (append-only intact)."""
+    jp = tmp_path / "journal.jsonl"
+    for texte, sid in (("chiffrement au repos branche", "multiservice-chiffrement"),
+                       ("miniatures boutique en prod", "logos")):
+        append_events(jp, [AetherEvent(type=EventType.DECISION, title="decision",
+                                       description=texte, source="project:maison", observed_at=T0,
+                                       data={"text": texte, "session_id": sid, "turn_id": "t"})])
+    evs = read_events(jp)
+    assert all(e.source == "project:maison" for e in evs)      # journal brut intact
+    hits = recall(evs, "en", source_prefix="project:multiservice")
+    assert len(hits) == 1 and "chiffrement" in hits[0]["text"]

@@ -85,3 +85,19 @@ def test_filtre_source_isole_le_projet():
     r = recent(evs, days=7, now=NOW, source_prefix="project:MultiService-IA")
     assert r["count"] == 1 and r["counts"]["decisions"] == 1
     assert r["decisions"][0]["text"] == "ici"
+
+
+def _ev_sid(typ, text, at, sid, src="project:maison"):
+    return AetherEvent(type=typ, title="x", description=text, source=src,
+                       observed_at=at, data={"text": text, "turn_id": "t", "session_id": sid})
+
+
+def test_filtre_par_projet_sur_un_poste_multi_projets():
+    """Defaut observe (24/07/2026) : `recent(source='project:MultiService-IA')` renvoyait 0
+    parce que tout le poste ecrit sous `project:maison`. Le projet vit dans la session."""
+    evs = [
+        _ev_sid(EventType.DECISION, "ici", NOW - timedelta(hours=1), "multiservice-chiffrement"),
+        _ev_sid(EventType.DECISION, "ailleurs", NOW - timedelta(hours=1), "logos"),
+    ]
+    r = recent(evs, days=7, now=NOW, source_prefix="project:MultiService-IA")
+    assert r["count"] == 1 and r["decisions"][0]["text"] == "ici"

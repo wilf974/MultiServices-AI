@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from .events import AetherEvent, EventType
 from .skills import _norm, _tokens
+from .project_map import matches as project_matches
 from .source_alias import canonical
 
 
@@ -212,7 +213,7 @@ def recall(events: List[AetherEvent], query: str, as_of: Optional[datetime] = No
     for e in events:
         if type_ and e.type.value != type_:
             continue
-        if not _source_matches(e.source, source_prefix):
+        if not project_matches(e.data, e.source, source_prefix):
             continue
         vf = _aware(e.valid_from)
         if vf and vf > asof:
@@ -431,7 +432,7 @@ def recent(events: List[AetherEvent], days: int = 7,
     cutoff = now - timedelta(days=days)
     rec = []
     for e in events:
-        if not _source_matches(e.source, source_prefix):
+        if not project_matches(e.data, e.source, source_prefix):
             continue
         vf = _aware(e.valid_from)
         if vf is None or vf < cutoff or vf > now:
@@ -533,7 +534,7 @@ def lessons_learned(events: List[AetherEvent], as_of: Optional[datetime] = None,
     corrections = sorted(
         [e for e in events
          if e.type == EventType.CORRECTION and valid(e)
-         and _source_matches(e.source, source_prefix)
+         and project_matches(e.data, e.source, source_prefix)
          and not _closed_by(closes_idx, e.id)],      # une correction close (doublon) sort
         key=lambda e: _aware(e.valid_from) or floor)
 
@@ -570,7 +571,7 @@ def lessons_learned(events: List[AetherEvent], as_of: Optional[datetime] = None,
     standing_all = [
         e for e in events
         if e.type == EventType.DECISION and valid(e)
-        and _source_matches(e.source, source_prefix)
+        and project_matches(e.data, e.source, source_prefix)
         and not _superseded_by(corr_idx, e.data.get("session_id"), _aware(e.valid_from))
         and not _closed_by(closes_idx, e.id)         # une decision close ne tient plus debout
     ]
@@ -630,7 +631,7 @@ def project_review(events: List[AetherEvent], project: str, days: Optional[int] 
     def by_recent(items):
         return sorted(items, key=lambda e: _aware(e.valid_from) or floor, reverse=True)
 
-    mine = [e for e in pool if _source_matches(e.source, project)]
+    mine = [e for e in pool if project_matches(e.data, e.source, project)]
 
     # --- Correction RAFFINEE (calibrage 06/07) : une correction (valide a asof) supersede le SEUL
     # fait IMMEDIATEMENT anterieur de SA session (le « dernier etat dit »), pas TOUS les faits.

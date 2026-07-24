@@ -129,3 +129,19 @@ def test_filtre_source_isole_le_projet():
     out = lessons_learned(evs, source_prefix="project:MultiService-IA")
     assert out["counts"]["still_standing"] == 1
     assert out["still_standing"][0]["text"] == "ici"
+
+
+def test_filtre_par_projet_sur_un_poste_multi_projets():
+    """Defaut observe (24/07/2026) : un poste = une source, donc les lecons d'un projet
+    etaient noyees dans celles de tous les autres. Le projet vit dans la session."""
+    evs = [
+        _ev(EventType.DECISION, "ici", T0, "multiservice-chiffrement", src="project:maison"),
+        _ev(EventType.CORRECTION, "en fait non", T0 + timedelta(hours=1),
+            "multiservice-chiffrement", src="project:maison"),
+        _ev(EventType.DECISION, "ailleurs", T0, "logos", src="project:maison"),
+        _ev(EventType.CORRECTION, "autre revision", T0 + timedelta(hours=1),
+            "logos", src="project:maison"),
+    ]
+    out = lessons_learned(evs, source_prefix="project:multiservice")
+    assert out["counts"]["lessons"] == 1
+    assert "autre revision" not in str(out)          # les lecons de l'autre projet ne fuient pas

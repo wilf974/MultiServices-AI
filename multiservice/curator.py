@@ -17,7 +17,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from .events import AetherEvent, EventType
 from .hygiene import looks_like_placeholder
 from .memory import (_aware, _closed_by, _closes_index, _corrections_index,
-                     _source_matches, _superseded_by, _text)
+                     _superseded_by, _text)
+from .project_map import matches as project_matches
 from .skills import _norm, _tokens
 
 # Session NEUTRE des evenements de cloture ciblee : le supersede session+temps n'y perime
@@ -48,7 +49,7 @@ def _facts(events: List[AetherEvent], asof: datetime,
     for e in events:
         if e.type not in CURATED_TYPES:
             continue
-        if not _source_matches(e.source, source_prefix):
+        if not project_matches(e.data, e.source, source_prefix):
             continue
         if not _valid_at(e, asof):
             continue

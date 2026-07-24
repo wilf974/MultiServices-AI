@@ -175,3 +175,25 @@ def test_journal_vide_et_requete_vide(tmp_path):
     _corpus(journal); p.update(journal)
     evs = read_events(journal)
     assert projection.recall_sql(p, "") == memory.recall(evs, "")    # requete vide
+
+
+def test_parite_filtre_projet_pur_vs_sql(tmp_path):
+    """La dimension PROJET doit valoir sur la surface SERVIE (SQL), pas seulement sur le pur :
+    le MCP route recall/recent/brief vers SQL. Oracle = egalite stricte des deux chemins."""
+    journal = tmp_path / "j.jsonl"
+    now = datetime(2026, 7, 24, 12, 0, tzinfo=timezone.utc)
+    evs = [
+        _ev("chiffrement au repos branche", type_=EventType.DECISION, source="project:maison",
+            data={"session_id": "multiservice-chiffrement", "text": "chiffrement au repos branche"}),
+        _ev("miniatures boutique en prod", type_=EventType.DECISION, source="project:maison",
+            data={"session_id": "logos", "text": "miniatures boutique en prod"}),
+    ]
+    evs = [e.model_copy(update={"valid_from": now - timedelta(hours=1)}) for e in evs]
+    append_events(journal, evs)
+    p = _proj(tmp_path, journal)
+
+    pur = memory.recent(read_events(journal), days=7, now=now, source_prefix="project:multiservice")
+    sql = projection.recent_sql(p, days=7, now=now, source_prefix="project:multiservice")
+    assert sql == pur                                   # ORACLE : aucune divergence pur/SQL
+    assert sql["count"] == 1                            # et le projet est bien isole
+    assert "miniatures" not in str(sql)

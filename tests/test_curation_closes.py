@@ -101,3 +101,20 @@ def test_proposition_porte_ses_commandes():
     assert cmd.rstrip().endswith(f"--closes {b.id}")   # la copie, jamais l'original
     assert a.id not in cmd.split("--closes")[1]
     assert "--rejects " + b.id in p["command_reject"]  # le rejet aussi, pret a coller
+
+
+def test_curation_filtrable_par_projet(tmp_path):
+    """Defaut observe (24/07/2026) : un poste = une source, donc curer « un projet » curait
+    en fait TOUT le poste. Le projet vit dans la session."""
+    t0 = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)
+
+    def _e(text, sid):
+        return AetherEvent(type=EventType.DECISION, title="decision", description=text,
+                           source="project:maison", observed_at=t0,
+                           data={"text": text, "session_id": sid, "turn_id": "t"})
+
+    evs = [_e("doublon exact", "multiservice-scaling"), _e("doublon exact", "multiservice-scaling"),
+           _e("doublon logos", "logos"), _e("doublon logos", "logos")]
+    r = curation_report(evs, source_prefix="project:multiservice", now=NOW)
+    assert r["counts"]["exact_duplicates"] == 1        # seul le doublon MultiService
+    assert "doublon logos" not in str(r)               # l'autre projet du poste ne fuit pas
