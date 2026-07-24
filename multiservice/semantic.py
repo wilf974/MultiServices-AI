@@ -173,6 +173,19 @@ def make_embedder(backend: Optional[str] = None, **kw):
                           host=kw.get("host") or config.OLLAMA_HOST)
 
 
+_EMBEDDERS: Dict[str, Any] = {}
+
+
+def shared_embedder(backend: Optional[str] = None, **kw):
+    """Embedder PARTAGE entre requetes d'un meme process. Charger la session ONNX coute ~850 ms
+    (mesure en production le 24/07) : un serveur ne le repaye pas a chaque appel."""
+    b = (backend if backend is not None else
+         os.environ.get("MULTISERVICE_EMBED_BACKEND", "")).strip().lower()
+    if b not in _EMBEDDERS:
+        _EMBEDDERS[b] = make_embedder(backend=b, **kw)
+    return _EMBEDDERS[b]
+
+
 class EmbeddingStore:
     """Cache append-only id->vecteur (jsonl). On n'efface jamais (esprit C3)."""
 
@@ -219,6 +232,30 @@ class EmbeddingStore:
         tmp.replace(self.path)                            # remplacement atomique
         self._cache = d
         return True
+
+
+_STORES: Dict[str, tuple] = {}          # chemin -> (mtime, taille, EmbeddingStore)
+
+
+def shared_store(path: str | Path) -> "EmbeddingStore":
+    """Store PARTAGE entre requetes d'un meme process (le serveur est long).
+    Mesure du 24/07 en production : recharger l'index a chaque appel coutait 0.79 s des 1.58 s
+    d'un `recall_semantic`. Invalide sur (mtime, taille) : un index fraichement pousse depuis le
+    poste est vu SANS redemarrer le conteneur, sans jamais servir une version perimee."""
+    p = Path(path)
+    try:
+        st = p.stat()
+        sig = (st.st_mtime, st.st_size)
+    except OSError:
+        sig = (0.0, -1)                 # fichier absent : ne pas mettre en cache un vide durable
+    cle = str(p)
+    cached = _STORES.get(cle)
+    if cached is None or cached[0] != sig[0] or cached[1] != sig[1]:
+        store = EmbeddingStore(p)
+        store.load()
+        _STORES[cle] = (sig[0], sig[1], store)
+        return store
+    return cached[2]
 
 
 def _is_valid_vec(vec) -> bool:

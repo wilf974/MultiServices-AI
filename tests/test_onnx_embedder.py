@@ -113,3 +113,41 @@ def test_backend_onnx_sert_une_requete_en_un_seul_thread():
     """Latence stable cote serveur : servir n'est pas indexer."""
     from multiservice.semantic import make_embedder
     assert make_embedder(backend="onnx").threads == 1
+
+
+# --- cache du store entre requetes (le serveur est un process long) ---
+
+def test_store_partage_entre_deux_requetes(tmp_path):
+    """Mesure du 24/07 en production : 0.79 s des 1.58 s d'un recall_semantic partaient a
+    RECHARGER l'index (21 Mo de jsonl) a chaque appel. Un process long doit le garder."""
+    from multiservice.semantic import EmbeddingStore, shared_store
+    p = tmp_path / "emb.jsonl"
+    EmbeddingStore(p).add({"a": [1.0, 0.0]})
+    assert shared_store(p) is shared_store(p)          # meme instance -> lu une seule fois
+
+
+def test_store_recharge_si_l_index_a_change(tmp_path):
+    """Mais il ne doit pas servir un index perime : un nouvel index pousse depuis le poste
+    doit etre vu sans redemarrer le conteneur."""
+    from multiservice.semantic import EmbeddingStore, shared_store
+    p = tmp_path / "emb.jsonl"
+    EmbeddingStore(p).add({"a": [1.0, 0.0]})
+    premier = shared_store(p)
+    assert len(premier.load()) == 1
+    import os, time
+    EmbeddingStore(p).add({"b": [0.0, 1.0]})
+    os.utime(p, (time.time() + 5, time.time() + 5))    # horodatage posterieur (granularite FS)
+    assert len(shared_store(p).load()) == 2
+
+
+def test_embedder_partage_entre_deux_requetes():
+    """Le chargement du modele ONNX coute 847 ms (mesure en production le 24/07). Le recreer a
+    chaque requete l'aurait repaye a chaque fois : un process long garde sa session."""
+    from multiservice.semantic import shared_embedder
+    assert shared_embedder(backend="onnx") is shared_embedder(backend="onnx")
+
+
+def test_embedders_de_backends_differents_ne_se_melangent_pas():
+    from multiservice.semantic import OllamaEmbedder, shared_embedder
+    assert isinstance(shared_embedder(backend="ollama"), OllamaEmbedder)
+    assert isinstance(shared_embedder(backend="onnx"), OnnxEmbedder)
