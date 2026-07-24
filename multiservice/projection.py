@@ -40,8 +40,11 @@ from .journal import read_events
 from .semantic import hamming, pack_bits
 from .skills import _norm, _tokens
 
-_COLS = "line_no,id,type,source,text,valid_from,valid_to,raw"
-_SCHEMA = "4"                       # v4 : closures + snapshots (as-of) ; v3 : vecs ; v2 : raw + FTS5 + UTC
+_COLS = "line_no,id,type,source,text,valid_from,valid_to,raw,session_id,turn_id"
+# v5 : session_id + turn_id indexes -> acces CIBLE (why/replay/reasoning/forecast) au lieu de
+# relire le journal entier. Un changement de schema est sans risque : la projection est un DERIVE,
+# elle se reconstruit depuis le journal-verite.
+_SCHEMA = "5"                       # v4 : closures + snapshots (as-of) ; v3 : vecs ; v2 : raw + FTS5 + UTC
 
 
 def _iso(dt):
@@ -55,7 +58,8 @@ def _text(e: AetherEvent) -> str:
 
 
 def _row(line_no: int, e: AetherEvent, raw: str):
-    return (line_no, e.id, e.type.value, e.source, _text(e), _iso(e.valid_from), _iso(e.valid_to), raw)
+    return (line_no, e.id, e.type.value, e.source, _text(e), _iso(e.valid_from), _iso(e.valid_to),
+            raw, e.data.get("session_id"), e.data.get("turn_id"))
 
 
 def search_pure(events: List[AetherEvent], term: str) -> List[str]:
@@ -84,7 +88,12 @@ class Projection:
             self._set("schema", _SCHEMA)
         self.conn.execute("CREATE TABLE IF NOT EXISTS events ("
                           "line_no INTEGER PRIMARY KEY, id TEXT, type TEXT, source TEXT, "
-                          "text TEXT, valid_from TEXT, valid_to TEXT, raw TEXT)")
+                          "text TEXT, valid_from TEXT, valid_to TEXT, raw TEXT, "
+                          "session_id TEXT, turn_id TEXT)")
+        # Index de PREFILTRE : c'est ce qui evite de relire le journal entier par appel.
+        for idx, col in (("ix_ev_session", "session_id"), ("ix_ev_turn", "turn_id"),
+                         ("ix_ev_type", "type"), ("ix_ev_vf", "valid_from")):
+            self.conn.execute("CREATE INDEX IF NOT EXISTS %s ON events (%s)" % (idx, col))
         self.conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS events_fts "
                           "USING fts5(ntext, tokenize='trigram')")   # trigram = parite sous-chaine avec _score
         self.conn.execute("CREATE TABLE IF NOT EXISTS vecs (id TEXT PRIMARY KEY, bits BLOB)")
@@ -111,7 +120,8 @@ class Projection:
         return lines, events, n
 
     def _insert(self, lines, events, start: int, n: int) -> None:
-        self.conn.executemany(f"INSERT INTO events ({_COLS}) VALUES (?,?,?,?,?,?,?,?)",
+        trous = ",".join("?" * len(_COLS.split(",")))     # derive de _COLS : ajouter une colonne
+        self.conn.executemany(f"INSERT INTO events ({_COLS}) VALUES ({trous})",   # ne casse plus rien
                               [_row(i, events[i], lines[i]) for i in range(start, n)])
         self.conn.executemany("INSERT INTO events_fts (rowid, ntext) VALUES (?,?)",
                               [(i, _norm(memory._text(events[i]))) for i in range(start, n)])
@@ -182,6 +192,52 @@ class Projection:
         cur = self.conn.execute(f"SELECT raw FROM events WHERE {where} OR type='correction' "
                                 "ORDER BY line_no", params)
         return [AetherEvent.model_validate_json(r[0]) for r in cur.fetchall()]
+
+    def events_by_session(self, session_id: str) -> List[AetherEvent]:
+        """Events d'UNE session, ordre journal. Prefiltre EXACT : `replay`, `reasoning` et
+        `forecast` ne regardent que cette session — y compris leur index C3, qui est par session."""
+        cur = self.conn.execute("SELECT raw FROM events WHERE session_id=? ORDER BY line_no",
+                                (session_id,))
+        return [AetherEvent.model_validate_json(r[0]) for r in cur.fetchall()]
+
+    def events_by_turn(self, turn_id: str) -> List[AetherEvent]:
+        """Events d'UN tour, ordre journal. Prefiltre EXACT : `why` ne regarde que ce tour."""
+        cur = self.conn.execute("SELECT raw FROM events WHERE turn_id=? ORDER BY line_no",
+                                (turn_id,))
+        return [AetherEvent.model_validate_json(r[0]) for r in cur.fetchall()]
+
+    def events_by_types(self, types, since_iso: str = None) -> List[AetherEvent]:
+        """Events des types demandes, ordre journal. Prefiltre EXACT quand la fonction pure ne
+        regarde que ces types (`lessons` = correction+faits perimables, `usage` = token_usage...).
+        `since_iso` ajoute la borne temporelle : pour une vue fenetree (`project_review(days=N)`),
+        c'est elle qui coupe vraiment — les types couvrent l'essentiel du journal."""
+        types = list(types)
+        if not types:
+            return []
+        trous = ",".join("?" * len(types))
+        sql = "SELECT raw FROM events WHERE type IN (%s)" % trous
+        params = list(types)
+        if since_iso:
+            sql += " AND valid_from >= ?"            # `_iso` normalise UTC -> comparaison lexicale sure
+            params.append(since_iso)
+        cur = self.conn.execute(sql + " ORDER BY line_no", params)
+        return [AetherEvent.model_validate_json(r[0]) for r in cur.fetchall()]
+
+    def session_of(self, event_id: str):
+        """Session d'un event, sans charger l'event (une seule colonne)."""
+        r = self.conn.execute("SELECT session_id FROM events WHERE id=? LIMIT 1",
+                              (event_id,)).fetchone()
+        return r[0] if r else None
+
+    def stats(self) -> dict:
+        """Agregats SANS charger un seul event (COUNT/MAX/DISTINCT). `health` relisait 2765 lignes
+        pour compter : c'etait le gaspillage le plus net des onze outils."""
+        n, dernier = self.conn.execute(
+            "SELECT COUNT(*), MAX(valid_from) FROM events").fetchone()
+        sources = self.conn.execute(
+            "SELECT COUNT(DISTINCT source) FROM events WHERE source IS NOT NULL AND source<>''"
+        ).fetchone()[0]
+        return {"count": n or 0, "last_valid_from": dernier, "sources": sources or 0}
 
     def events_window(self, start_iso: str, end_iso: str) -> List[AetherEvent]:
         """Events dont valid_from (normalise UTC) tombe dans [start, end]. Pour `recent` : la fenetre
@@ -298,6 +354,109 @@ def recall_semantic_sql(proj: Projection, query: str, embedder, store, m: int = 
 def brief_sql(proj: Projection, query: str, k: int = 5, as_of=None):
     """`memory.topic_brief` servi par la projection (compose recall : memes candidats). LECTURE SEULE."""
     return memory.topic_brief(proj.events_for_recall(query), query, k=k, as_of=as_of)
+
+
+def why_sql(proj: Projection, turn_id: str):
+    """`memory.why` servi par la projection : prefiltre EXACT sur le tour. LECTURE SEULE."""
+    return memory.why(proj.events_by_turn(turn_id), turn_id)
+
+
+def replay_sql(proj: Projection, session_id: str, digest: bool = True):
+    """`memory.replay_session` / `session_digest` servis par la projection. LECTURE SEULE."""
+    evs = proj.events_by_session(session_id)
+    return memory.session_digest(evs, session_id) if digest else memory.replay_session(evs, session_id)
+
+
+def reasoning_sql(proj: Projection, session_id: str, **kw):
+    """`memory.reasoning_chain` servi par la projection. LECTURE SEULE."""
+    return memory.reasoning_chain(proj.events_by_session(session_id), session_id, **kw)
+
+
+def forecast_sql(proj: Projection, session_id: str = None, **kw):
+    """`preheat.forecast_next_turn` servi par la projection : la projection d'un prochain tour ne
+    regarde que SA session. Sans session_id, on ne peut pas prefiltrer (repli appelant)."""
+    from . import preheat
+    return preheat.forecast_next_turn(proj.events_by_session(session_id), session_id=session_id, **kw)
+
+
+def _types_lecons() -> List[str]:
+    """Types que `lessons_learned` regarde REELLEMENT : corrections, decisions, et les faits
+    qu'une correction peut perimer (`_FACT_TYPES`, qui inclut completion et tool_result).
+    Derive des ensembles du code, jamais recopie a la main : un oracle a deja pris en defaut
+    une liste devinee (24/07)."""
+    return sorted({"correction", "decision"} | {t.value for t in memory._FACT_TYPES})
+
+
+def _types_revue() -> List[str]:
+    """Types que la curation et la revue de projet regardent : faits soumis a curation,
+    corrections, et faits perimables (les vues composent `lessons_learned`)."""
+    from . import curator
+    return sorted({t.value for t in curator.CURATED_TYPES} | {"correction"}
+                  | {t.value for t in memory._FACT_TYPES})
+
+
+def lessons_sql(proj: Projection, **kw):
+    """`memory.lessons_learned` servi par la projection. LECTURE SEULE."""
+    return memory.lessons_learned(proj.events_by_types(_types_lecons()), **kw)
+
+
+def curation_sql(proj: Projection, **kw):
+    """`curator.curation_report` servi par la projection. LECTURE SEULE."""
+    from . import curator
+    return curator.curation_report(proj.events_by_types(_types_revue()), **kw)
+
+
+def project_review_sql(proj: Projection, project: str, days: int = None, now=None, **kw):
+    """`memory.project_review` servi par la projection. Avec `days`, la FENETRE est le vrai
+    discriminant (les types couvrent l'essentiel du journal) ; le pur coupe lui aussi sur
+    valid_from d'abord, donc prefiltrer dessus reste EXACT. `now` est fige ICI pour que le
+    prefiltre et le pur voient le meme instant. LECTURE SEULE."""
+    n = memory._aware(now) or datetime.now(timezone.utc)
+    depuis = None
+    if days is not None:
+        depuis = (n - timedelta(days=days)).astimezone(timezone.utc).isoformat()
+    evs = proj.events_by_types(_types_revue(), since_iso=depuis)
+    return memory.project_review(evs, project, days=days, now=n, **kw)
+
+
+def usage_sql(proj: Projection, **kw):
+    """`memory.reuse_stats` servi par la projection : seuls les TOKEN_USAGE portent le signal."""
+    return memory.reuse_stats(proj.events_by_types(["token_usage"]), **kw)
+
+
+def replay_event_sql(proj: Projection, event_id: str, depth: int = 3):
+    """`memory.replay_event` servi par la projection : la chaine causale remonte la SESSION de
+    l'event focus -> une requete pour trouver la session, une pour la charger. LECTURE SEULE."""
+    sid = proj.session_of(event_id)
+    if sid is None:                                   # event inconnu : le pur repond deja proprement
+        return memory.replay_event([], event_id, depth=depth)
+    return memory.replay_event(proj.events_by_session(sid), event_id, depth=depth)
+
+
+def index_status_sql(proj: Projection, vecs: dict, **kw):
+    """`memory.index_coverage` servi par la projection : seuls les types INDEXABLES comptent."""
+    types = sorted(t.value for t in memory._INDEXABLE_TYPES)
+    return memory.index_coverage(proj.events_by_types(types), vecs, **kw)
+
+
+def briefing_today_sql(proj: Projection, now=None):
+    """`memory.briefing_today` servi par la projection : une JOURNEE, donc la fenetre suffit.
+    `now` est fige ICI pour que prefiltre et pur voient le meme instant."""
+    n = memory._aware(now) or datetime.now(timezone.utc)
+    debut = n.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    evs = proj.events_window(debut.isoformat(), n.astimezone(timezone.utc).isoformat())
+    return memory.briefing_today(evs, now=n)
+
+
+def health_sql(proj: Projection) -> dict:
+    """`memory.health` sans charger un seul event : COUNT / MAX / DISTINCT. LECTURE SEULE."""
+    from datetime import datetime as _dt
+    s = proj.stats()
+    dernier = s["last_valid_from"]
+    if dernier:
+        dernier = memory._aware(_dt.fromisoformat(dernier)).isoformat()
+    return {"available": True, "event_count": s["count"],
+            "last_event_at": dernier, "sources": s["sources"]}
 
 
 def as_of_sql(proj: Projection, at) -> List[AetherEvent]:

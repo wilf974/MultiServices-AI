@@ -49,6 +49,9 @@ def build_server(journal_path: str = None):
     @srv.tool()
     def why(turn_id: str) -> list:
         """Les evenements d'un tour donne (pourquoi l'agent a vu/dit ca)."""
+        p = _proj()
+        if p is not None:
+            return projection.why_sql(p, turn_id)     # prefiltre EXACT sur le tour
         return memory.why(read_events(jp), turn_id)
 
     @srv.tool()
@@ -69,6 +72,9 @@ def build_server(journal_path: str = None):
     def replay(session_id: str, digest: bool = True):
         """Rejoue une session - lecture seule. digest=True (defaut) = resume COMPACT econome
         (1 ligne/tour) ; digest=False = tous les evenements ordonnes (dump complet)."""
+        p = _proj()
+        if p is not None:
+            return projection.replay_sql(p, session_id, digest=digest)   # prefiltre par session
         ev = read_events(jp)
         return memory.session_digest(ev, session_id) if digest else memory.replay_session(ev, session_id)
 
@@ -77,6 +83,9 @@ def build_server(journal_path: str = None):
         """Chaine causale d'un EVENEMENT : pourquoi l'agent a vu/dit ca. Remonte le tour focus
         + 'depth' tours precedents de la session + cloture/correction C3. Lecture seule, cite
         ses preuves (id, source, dates). Donne un event_id issu d'un recall."""
+        p = _proj()
+        if p is not None:
+            return projection.replay_event_sql(p, event_id, depth=depth)   # session de l'event
         return memory.replay_event(read_events(jp), event_id, depth=depth)
 
     @srv.tool()
@@ -84,6 +93,9 @@ def build_server(journal_path: str = None):
         """Pre-chauffage (lecture seule, ESTIMATION) : cout projete du prochain tour d'une
         session (snowball vs fenetrage C3). session_id vide = derniere session. N'engage rien."""
         from . import preheat
+        p = _proj()
+        if p is not None and session_id:              # sans session_id, pas de prefiltre possible
+            return projection.forecast_sql(p, session_id)
         return preheat.forecast_next_turn(read_events(jp), session_id=(session_id or None))
 
     @srv.tool()
@@ -113,6 +125,9 @@ def build_server(journal_path: str = None):
     def usage() -> dict:
         """Instrumentation (lecture seule) : reutilisation de la memoire — tours SERVIS depuis le
         cache (sans rappeler le modele), par source, et tokens d'entree epargnes. Mesure, pas predit."""
+        p = _proj()
+        if p is not None:
+            return projection.usage_sql(p)            # seuls les token_usage portent le signal
         return memory.reuse_stats(read_events(jp))
 
     @srv.tool()
@@ -120,6 +135,9 @@ def build_server(journal_path: str = None):
         """Fil de RAISONNEMENT d'une session : hypothese -> observation -> decision -> correction
         -> validation, ordonne. Indique les etapes presentes/manquantes (ex: decision sans
         validation). Lecture seule, cite ses preuves + fraicheur C3."""
+        p = _proj()
+        if p is not None:
+            return projection.reasoning_sql(p, session_id)   # prefiltre par session
         return memory.reasoning_chain(read_events(jp), session_id)
 
     @srv.tool()
@@ -128,8 +146,11 @@ def build_server(journal_path: str = None):
         (`still_standing`). Lecture seule. Vide tant qu'aucune correction n'est journalisee.
         `source` filtre par projet ; `k` plafonne les lecons, `standing_k` les verites debout
         (defaut 20/20, sortie bornee). `counts` reste complet, `truncated` signale la coupe."""
-        return memory.lessons_learned(read_events(jp), source_prefix=(source or None),
-                                      k=k, standing_k=standing_k)
+        kw = dict(source_prefix=(source or None), k=k, standing_k=standing_k)
+        p = _proj()
+        if p is not None:
+            return projection.lessons_sql(p, **kw)    # corrections + faits perimables
+        return memory.lessons_learned(read_events(jp), **kw)
 
     @srv.tool()
     def project_review(project: str, days: int = 0, k: int = 20) -> dict:
@@ -138,8 +159,11 @@ def build_server(journal_path: str = None):
         hypotheses refutees / debout, validations, lecons — chacune sourcee, datee, avec son
         `corrected_by` (le « pourquoi ca a change »). `days=0` = tout l'historique (sinon N
         derniers jours). Sortie bornee (k), `counts` complet, `truncated` signale la coupe."""
-        return memory.project_review(read_events(jp), project,
-                                     days=(days or None), k=k)
+        kw = dict(days=(days or None), k=k)
+        p = _proj()
+        if p is not None:
+            return projection.project_review_sql(p, project, **kw)   # faits + corrections
+        return memory.project_review(read_events(jp), project, **kw)
 
     @srv.tool()
     def curation(source: str = "", k: int = 20, older_than_days: int = 30) -> dict:
@@ -149,8 +173,11 @@ def build_server(journal_path: str = None):
         (AUCUNE ecriture, cloture jamais suppression). `source` filtre par projet ; sortie
         bornee (k), compteurs complets, `truncated` signale la coupe."""
         from . import curator
-        return curator.curation_report(read_events(jp), source_prefix=(source or None),
-                                       k=k, older_than_days=older_than_days)
+        kw = dict(source_prefix=(source or None), k=k, older_than_days=older_than_days)
+        p = _proj()
+        if p is not None:
+            return projection.curation_sql(p, **kw)   # types soumis a curation seulement
+        return curator.curation_report(read_events(jp), **kw)
 
     @srv.tool()
     def as_of(at: str = "", source: str = "", k: int = 50) -> dict:
@@ -171,6 +198,9 @@ def build_server(journal_path: str = None):
         """Sante du substrat memoire (lecture seule) : disponibilite (on a pu lire), nombre
         d'evenements, date du dernier, nombre de sources distinctes. Point d'entree d'une REPRISE
         (health -> recent -> recall) — ne devine rien, ne mute rien."""
+        p = _proj()
+        if p is not None:
+            return projection.health_sql(p)           # COUNT/MAX/DISTINCT : zero event charge
         return memory.health(read_events(jp))
 
     @srv.tool()
@@ -178,12 +208,19 @@ def build_server(journal_path: str = None):
         """FraIcheur de l'index sEmantique : combien d'EvEnements indexables sont couverts.
         Si 'fresh' est faux, recall_semantic ne voit pas tout (rEsultats partiels). Lecture seule."""
         from .semantic import EmbeddingStore
-        return memory.index_coverage(read_events(jp), EmbeddingStore(config.EMBED_PATH).load())
+        vecs = EmbeddingStore(config.EMBED_PATH).load()
+        p = _proj()
+        if p is not None:
+            return projection.index_status_sql(p, vecs)   # seuls les types indexables
+        return memory.index_coverage(read_events(jp), vecs)
 
     @srv.resource("aether://briefing/today")
     def briefing_today() -> str:
         """Briefing d'usage du jour (tokens, economie compaction, par modele)."""
-        return json.dumps(memory.briefing_today(read_events(jp)), ensure_ascii=False)
+        p = _proj()
+        brief = (projection.briefing_today_sql(p) if p is not None
+                 else memory.briefing_today(read_events(jp)))   # une journee : fenetre suffit
+        return json.dumps(brief, ensure_ascii=False)
 
     return srv
 
