@@ -237,22 +237,23 @@ class EmbeddingStore:
 _STORES: Dict[str, tuple] = {}          # chemin -> (mtime, taille, EmbeddingStore)
 
 
-def shared_store(path: str | Path) -> "EmbeddingStore":
+def shared_store(path: str | Path):
     """Store PARTAGE entre requetes d'un meme process (le serveur est long).
     Mesure du 24/07 en production : recharger l'index a chaque appel coutait 0.79 s des 1.58 s
     d'un `recall_semantic`. Invalide sur (mtime, taille) : un index fraichement pousse depuis le
     poste est vu SANS redemarrer le conteneur, sans jamais servir une version perimee."""
+    from .vecstore import open_store
     p = Path(path)
+    store = open_store(p)               # binaire si present : compact + lecture ciblee
+    reel = Path(getattr(store, "path", p))
     try:
-        st = p.stat()
+        st = reel.stat()
         sig = (st.st_mtime, st.st_size)
     except OSError:
         sig = (0.0, -1)                 # fichier absent : ne pas mettre en cache un vide durable
-    cle = str(p)
+    cle = str(reel)
     cached = _STORES.get(cle)
     if cached is None or cached[0] != sig[0] or cached[1] != sig[1]:
-        store = EmbeddingStore(p)
-        store.load()
         _STORES[cle] = (sig[0], sig[1], store)
         return store
     return cached[2]

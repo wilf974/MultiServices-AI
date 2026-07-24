@@ -46,8 +46,19 @@ try {
     Pop-Location
 }
 
-$taille = (Get-Item $Store).Length / 1MB
-Write-Host ("      index local : {0:N1} Mo" -f $taille)
+# Conversion en index BINAIRE : ~5,4x plus compact que le jsonl et lu par tranches (mesure du
+# 24/07 : 21,5 Mo -> 4,0 Mo, lecture integrale 0,20 s -> 0,02 s, 80 candidats en 0,001 s).
+# C'est LUI qu'on transfere ; le jsonl reste en local comme filet.
+$Binaire = [IO.Path]::ChangeExtension($Store, ".vec")
+Push-Location $racine
+try {
+    python -c "from multiservice.vecstore import migrer_depuis_jsonl; print('[vec] %d vecteurs' % migrer_depuis_jsonl(r'$Store', r'$Binaire'))"
+} finally {
+    Pop-Location
+}
+
+Write-Host ("      index local : {0:N1} Mo (jsonl) -> {1:N1} Mo (binaire)" -f `
+            ((Get-Item $Store).Length / 1MB), ((Get-Item $Binaire).Length / 1MB))
 
 if ($DryRun) {
     Write-Host "[3/3] DryRun : envoi non effectue."
@@ -55,7 +66,9 @@ if ($DryRun) {
 }
 
 Write-Host "[3/3] envoi au central ($VpsHost)..."
-scp -P $VpsPort -q $Store "${VpsUser}@${VpsHost}:~/.aethercore/embeddings-minilm.jsonl"
+# Le binaire suffit : `open_store` le prefere automatiquement s'il est present a cote du jsonl,
+# donc la bascule ne demande aucun changement de configuration cote central.
+scp -P $VpsPort -q $Binaire "${VpsUser}@${VpsHost}:~/.aethercore/embeddings-minilm.vec"
 if ($LASTEXITCODE -ne 0) { throw "echec du transfert scp" }
 
 # Controle de couverture cote central (lecture seule, ne declenche AUCUNE indexation).

@@ -824,12 +824,15 @@ def recall_semantic(events: List[AetherEvent], query: str, embedder, store,
     asof = _aware(as_of) or datetime.now(timezone.utc)
     corr_idx = _corrections_index(events)            # C3 : fraicheur (correction posterieure ?)
     closes_idx = _closes_index(events, as_of=asof)   # clotures CIBLEES (curation)
-    vecs = store.load()
-    cand = []
+    # On filtre AVANT de reclamer des vecteurs : la memoire consommee suit le nombre de
+    # CANDIDATS, pas la taille du corpus (mesure 24/07 : charger tout l'index coutait 0,79 s
+    # et l'integralite des float32 en RAM). `vectors_for` = lecture ciblee ; un store sans
+    # cette methode (EmbeddingStore jsonl, store tiers) reste servi par `load()`.
+    eligibles = []
     for e in events:
         if type_ and e.type.value != type_:
             continue
-        if not _source_matches(e.source, source_prefix):
+        if not project_matches(e.data, e.source, source_prefix):
             continue
         vf = _aware(e.valid_from)
         if vf and vf > asof:
@@ -837,8 +840,10 @@ def recall_semantic(events: List[AetherEvent], query: str, embedder, store,
         vt = _aware(e.valid_to)
         if vt and vt < asof:
             continue
-        if e.id in vecs:
-            cand.append((e, vecs[e.id]))
+        eligibles.append(e)
+    cible = getattr(store, "vectors_for", None)
+    vecs = cible([e.id for e in eligibles]) if callable(cible) else store.load()
+    cand = [(e, vecs[e.id]) for e in eligibles if e.id in vecs]
     if not cand:                                         # pas d'index -> repli lexical pur
         return recall(events, query, as_of=as_of, k=k, type_=type_, source_prefix=source_prefix)
     if qvec is None:
