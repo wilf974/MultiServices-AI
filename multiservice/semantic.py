@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, Sequence
 from urllib.request import Request, urlopen
@@ -33,6 +34,34 @@ def cosine(a: Sequence[float], b: Sequence[float]) -> float:
     if na == 0 or nb == 0:
         return 0.0
     return dot / (na * nb)
+
+
+def mean_pool(token_vecs: Sequence[Sequence[float]], mask: Sequence[int]) -> List[float]:
+    """Moyenne des vecteurs de tokens NON masques (pooling standard des sentence-transformers).
+    PUR. Masque entierement vide -> vecteur nul (jamais de division par zero)."""
+    if not token_vecs:
+        return []
+    dim = len(token_vecs[0])
+    acc = [0.0] * dim
+    n = 0
+    for vec, m in zip(token_vecs, mask):
+        if not m:
+            continue
+        for i, x in enumerate(vec):
+            acc[i] += x
+        n += 1
+    if n == 0:
+        return [0.0] * dim
+    return [x / n for x in acc]
+
+
+def l2_normalize(vec: Sequence[float]) -> List[float]:
+    """Vecteur unitaire (norme L2 = 1). PUR. Vecteur nul -> rendu tel quel (pas de direction).
+    Interet : le re-score float32 se reduit a un produit scalaire cote serveur."""
+    norm = math.sqrt(sum(x * x for x in vec))
+    if norm == 0:
+        return list(vec)
+    return [x / norm for x in vec]
 
 
 def pack_bits(vec: Sequence[float]) -> bytes:
@@ -84,6 +113,64 @@ class OllamaEmbedder:
         with urlopen(req, timeout=self._timeout) as resp:
             r = json.loads(resp.read().decode("utf-8"))
         return r.get("embeddings") or ([r["embedding"]] if "embedding" in r else [])
+
+
+class OnnxEmbedder:
+    """Embedding LOCAL via ONNX Runtime (MiniLM-L6-v2, 384d). Coquille I/O, imports PARESSEUX.
+
+    Raison d'etre : le central sert la memoire mais n'a ni GPU ni Ollama. Le corpus est indexe
+    sur le poste (GPU) et seuls les vecteurs voyagent ; ici le serveur n'embedde qu'une REQUETE
+    courte (~10-30 ms CPU). `model_dir` contient `model.onnx` + `tokenizer.json`.
+    Sortie L2-normalisee : le re-score float32 se reduit alors a un produit scalaire.
+    """
+
+    def __init__(self, model_dir: str | Path, max_len: int = 256, threads: int = 1) -> None:
+        self.model_dir = Path(model_dir)
+        self.max_len = max_len
+        self.threads = threads                       # 1 = servir une requete ; n = indexer un corpus
+        self._sess = None
+        self._tok = None
+
+    def _load(self):
+        if self._sess is None:
+            import onnxruntime                       # import au bord (dependance optionnelle)
+            from tokenizers import Tokenizer
+            so = onnxruntime.SessionOptions()
+            so.intra_op_num_threads = self.threads
+            self._sess = onnxruntime.InferenceSession(
+                str(self.model_dir / "model.onnx"), so, providers=["CPUExecutionProvider"])
+            self._tok = Tokenizer.from_file(str(self.model_dir / "tokenizer.json"))
+            self._tok.enable_truncation(max_length=self.max_len)
+            self._tok.enable_padding(length=None)
+        return self._sess, self._tok
+
+    def embed(self, texts: Sequence[str]) -> List[List[float]]:
+        sess, tok = self._load()
+        # Tronque avant tokenisation : un texte enorme couterait sa tokenisation pour rien.
+        encs = tok.encode_batch([t[:6000] for t in texts])
+        ids = [e.ids for e in encs]
+        mask = [e.attention_mask for e in encs]
+        feed = {"input_ids": ids, "attention_mask": mask}
+        noms = {i.name for i in sess.get_inputs()}
+        if "token_type_ids" in noms:
+            feed["token_type_ids"] = [[0] * len(x) for x in ids]
+        import numpy as np
+        feed = {k: np.array(v, dtype=np.int64) for k, v in feed.items() if k in noms}
+        sortie = sess.run(None, feed)[0]             # (lot, tokens, dim)
+        return [l2_normalize(mean_pool(sortie[i].tolist(), mask[i])) for i in range(len(ids))]
+
+
+def make_embedder(backend: Optional[str] = None, **kw):
+    """Embedder de SERVICE selon le backend declare. Defaut = Ollama (retro-compat poste local).
+    `onnx` = MiniLM CPU local : le central sert des REQUETES sans Ollama et sans jamais indexer
+    (le corpus, lui, est indexe sur un poste avec GPU et seuls les vecteurs voyagent)."""
+    from . import config
+    b = (backend if backend is not None else
+         os.environ.get("MULTISERVICE_EMBED_BACKEND", "")).strip().lower()
+    if b == "onnx":
+        return OnnxEmbedder(kw.get("onnx_dir") or config.ONNX_DIR, threads=1)
+    return OllamaEmbedder(model=kw.get("model") or config.EMBED_MODEL,
+                          host=kw.get("host") or config.OLLAMA_HOST)
 
 
 class EmbeddingStore:

@@ -49,6 +49,14 @@ EMBED_PATH = os.environ.get(
 )
 EMBED_MODEL = os.environ.get("MULTISERVICE_EMBED_MODEL", "bge-m3")
 
+# Embedder ONNX local (MiniLM-L6-v2, 384d) : le corpus est indexe sur un poste avec GPU, seul le
+# RESULTAT voyage ; le central n'embedde plus qu'une REQUETE courte (~10-30 ms CPU, pas d'Ollama,
+# pas de reindexation). Embedding toujours 100% LOCAL : aucune API d'inference hebergee.
+ONNX_DIR = os.environ.get(
+    "MULTISERVICE_ONNX_DIR",
+    str(Path.home() / ".aethercore" / "onnx" / "all-MiniLM-L6-v2"),
+)
+
 # Projection SQLite reconstructible (scaling Phase 1) : index de LECTURE, jamais une verite.
 PROJECTION_PATH = os.environ.get(
     "MULTISERVICE_PROJECTION",

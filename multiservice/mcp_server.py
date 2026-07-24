@@ -55,9 +55,9 @@ def build_server(journal_path: str = None):
     def recall_semantic(query: str, k: int = 10, type: str = "", source: str = "", explain: bool = False, min_fused: float = 0.4, sem_weight: float = 0.7) -> list:
         """Recall HYBRIDE (semantique local + bi-temporel). Suggestif ; repli lexical si non indexe.
         Pre-requis : avoir lance `python -m multiservice.index` (embeddings locaux Ollama)."""
-        from .semantic import EmbeddingStore, OllamaEmbedder
+        from .semantic import EmbeddingStore, make_embedder
         store = EmbeddingStore(config.EMBED_PATH)
-        embedder = OllamaEmbedder(model=config.EMBED_MODEL, host=config.OLLAMA_HOST)
+        embedder = make_embedder()      # Ollama par defaut ; ONNX CPU si le noeud le declare
         kw = dict(k=k, type_=(type or None), source_prefix=(source or None),
                   explain=explain, min_fused=min_fused, sem_weight=sem_weight)
         p = _proj()

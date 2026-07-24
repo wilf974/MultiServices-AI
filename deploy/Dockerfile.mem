@@ -1,8 +1,12 @@
 FROM python:3.13-slim
 WORKDIR /app
+# Dependances AVANT le code : un changement de source ne doit pas refaire le pip install
+# (observe le 24/07/2026 - chaque deploiement repayait l'installation complete).
 COPY pyproject.toml README.md ./
+RUN mkdir -p multiservice && printf '__version__ = "0"\n' > multiservice/__init__.py \
+    && pip install --no-cache-dir ".[mcp,onnx]" && rm -rf multiservice
 COPY multiservice ./multiservice
-RUN pip install --no-cache-dir ".[mcp]"
+RUN pip install --no-cache-dir --no-deps .
 EXPOSE 8302
 ENV MULTISERVICE_HTTP_HOST=0.0.0.0 \
     MULTISERVICE_HTTP_PORT=8302

@@ -2,9 +2,10 @@
 # Lance le conteneur de memoire centrale. Journal monte en LECTURE SEULE (:ro) = garantie OS (D5).
 # Le(s) Host public(s) servis par le reverse proxy sont une donnee de DEPLOIEMENT, pas du repo :
 #   MEM_ALLOWED_HOSTS="mem.mondomaine.tld,127.0.0.1:8302,localhost:8302" bash deploy/docker-run-mem.sh
-# NOTE: MULTISERVICE_EMBED n'est PAS monte volontairement : sans Ollama dans le conteneur,
-# laisser l'index force recall_semantic a appeler l'embedder (timeout). Absent -> repli lexical propre.
-# Le semantique cote serveur est une affaire de phase 2 (Ollama + index dans le conteneur).
+# SEMANTIQUE (24/07/2026) : resolu SANS Ollama et SANS indexer ici. Le corpus est vectorise sur un
+# poste equipe (`python -m multiservice.index --onnx`), seuls l'index et le modele voyagent dans
+# $HOME/.aethercore ; le conteneur n'embedde plus qu'une REQUETE courte en CPU (~10-30 ms, 1 thread).
+# Pour revenir au repli lexical propre : retirer les 3 variables MULTISERVICE_EMBED* ci-dessous.
 set -euo pipefail
 docker rm -f mem-mcp 2>/dev/null || true
 docker run -d --name mem-mcp --restart unless-stopped \
@@ -14,6 +15,9 @@ docker run -d --name mem-mcp --restart unless-stopped \
   -e MULTISERVICE_CACHE=/data/cache-llm.jsonl \
   -e MULTISERVICE_SEMCACHE=/data/semcache-llm.jsonl \
   -e MULTISERVICE_SKILLS=/data/skills \
+  -e MULTISERVICE_EMBED=/data/embeddings-minilm.jsonl \
+  -e MULTISERVICE_EMBED_BACKEND=onnx \
+  -e MULTISERVICE_ONNX_DIR=/data/onnx/all-MiniLM-L6-v2 \
   -e MULTISERVICE_HTTP_HOST=0.0.0.0 -e MULTISERVICE_HTTP_PORT=8302 \
   -e MULTISERVICE_HTTP_ALLOWED_HOSTS="${MEM_ALLOWED_HOSTS:-mem.example.com,127.0.0.1:8302,localhost:8302}" \
   mem-mcp
