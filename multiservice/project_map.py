@@ -9,16 +9,15 @@ PUR, sans effet de bord.
 """
 from __future__ import annotations
 
-from typing import Optional
-
-from typing import Dict
+from typing import Dict, Optional
 
 from .source_alias import canonical
 
 # session_id observe -> projet canonique. Correspondance EXACTE (pas de fuzzy) : predictible.
-# Etendre ce dict est l'unique geste de gouvernance, comme SOURCE_ALIASES.
+# Pour les sessions SANS famille (`<projet>-<chantier>`). Etendre ce dict, comme SESSION_PREFIXES
+# et SOURCE_ALIASES, est l'unique geste de gouvernance.
 SESSION_PROJECTS: Dict[str, str] = {
-    "binah": "project:binah",
+    "claude-self": "project:claude-self",
 }
 
 # prefixe de famille de sessions (`<prefixe>` ou `<prefixe>-<chantier>`) -> projet canonique.

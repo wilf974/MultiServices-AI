@@ -14,8 +14,9 @@ def test_champ_project_explicite_fait_foi():
 
 
 def test_session_connue_resout_le_projet():
-    """Le journal reel n'a pas de champ projet : la session porte l'information."""
-    assert project_of({"session_id": "binah"}, "project:maison") == "project:binah"
+    """Le journal reel n'a pas de champ projet : la session porte l'information.
+    Cas EXACT : une session sans famille (`claude-self`, 151 events observes)."""
+    assert project_of({"session_id": "claude-self"}, "project:maison") == "project:claude-self"
 
 
 def test_famille_de_sessions_resolue_par_prefixe():
