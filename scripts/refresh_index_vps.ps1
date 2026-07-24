@@ -14,14 +14,21 @@
     Usage :  pwsh scripts\refresh_index_vps.ps1
              pwsh scripts\refresh_index_vps.ps1 -DryRun
 #>
+# L'infra est une donnee de DEPLOIEMENT, jamais du depot (decision 27ff345) : renseignez-la par
+# variables d'environnement (ou -VpsUser/-VpsHost/-VpsPort a l'appel).
+#   $env:MEM_VPS_USER="<user>"; $env:MEM_VPS_HOST="<hote>"; $env:MEM_VPS_PORT="22"
 param(
-    [string]$VpsUser   = "<user>",
-    [string]$VpsHost   = "<VPS_LAN>",
-    [int]   $VpsPort   = 2299,
+    [string]$VpsUser   = $(if ($env:MEM_VPS_USER) { $env:MEM_VPS_USER } else { "" }),
+    [string]$VpsHost   = $(if ($env:MEM_VPS_HOST) { $env:MEM_VPS_HOST } else { "" }),
+    [int]   $VpsPort   = $(if ($env:MEM_VPS_PORT) { [int]$env:MEM_VPS_PORT } else { 22 }),
     [string]$Store     = "$env:USERPROFILE\.aethercore\embeddings-minilm.jsonl",
     [int]   $Threads   = 8,
     [switch]$DryRun
 )
+
+if (-not $VpsUser -or -not $VpsHost) {
+    throw "Hote central non configure. Definissez MEM_VPS_USER et MEM_VPS_HOST (ou passez -VpsUser/-VpsHost)."
+}
 
 $ErrorActionPreference = "Stop"
 $racine = Split-Path -Parent $PSScriptRoot

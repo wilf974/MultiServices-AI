@@ -71,3 +71,7 @@ htmlcov/
 .DS_Store
 Thumbs.db
 *.swp
+
+# Commandes de taches planifiees : chemins ABSOLUS propres a la machine (donnee de deploiement,
+# jamais du depot). Regenerables par scripts/gen_taches.ps1.
+scripts/taches/
