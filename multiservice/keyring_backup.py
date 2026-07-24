@@ -33,13 +33,18 @@ _AAD = b"keyring-bundle-v1"
 
 
 def _collecte(keyring_dir: Path) -> dict:
-    """Materiel-cle du keyring : master + tous les slots. PUR (lecture seule)."""
+    """Materiel-cle du keyring : master + slots + cles PRIVEES de snapshots (`*.priv`).
+
+    Les `.priv` ouvrent les snapshots scelles vers une cle publique (ceux du central) : les
+    oublier ici reviendrait a perdre les snapshots distants. PUR (lecture seule)."""
     master = (keyring_dir / "master.key")
     slots_dir = keyring_dir / "slots"
     return {
         "master": _b64(master.read_bytes()) if master.exists() else None,
         "slots": {p.name: p.read_text(encoding="utf-8")
                   for p in sorted(slots_dir.glob("*.key"))} if slots_dir.exists() else {},
+        "prives": {p.name: p.read_text(encoding="utf-8")
+                   for p in sorted(keyring_dir.glob("*.priv"))},
     }
 
 
@@ -76,7 +81,15 @@ def import_bundle(blob: bytes, passphrase: str, dest: str | Path) -> dict:
             pass
     for nom, texte in contenu.get("slots", {}).items():
         (dest / "slots" / nom).write_text(texte, encoding="utf-8")
-    return {"master": bool(contenu.get("master")), "slots": len(contenu.get("slots", {}))}
+    for nom, texte in contenu.get("prives", {}).items():
+        p = dest / nom
+        p.write_text(texte, encoding="utf-8")
+        try:
+            os.chmod(p, 0o600)
+        except OSError:
+            pass
+    return {"master": bool(contenu.get("master")), "slots": len(contenu.get("slots", {})),
+            "prives": len(contenu.get("prives", {}))}
 
 
 def main() -> int:

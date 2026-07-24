@@ -15,13 +15,14 @@ Sorties console en ASCII.
 from __future__ import annotations
 
 import argparse
+import base64
 import os
 from pathlib import Path
 from typing import Optional
 
 from . import config
 from .keyring import KeyManager
-from .snapshot_crypto import read_header, seal, unseal
+from .snapshot_crypto import read_header, seal, seal_public, unseal, unseal_private
 
 SLOT = "snapshots"
 MOTIF = "journal-llm.jsonl.bak-*"
@@ -35,12 +36,19 @@ def _snapshots_clairs(dossier: Path, motif: str = MOTIF):
 
 def chiffrer_dossier(dossier: str | Path, km: Optional[KeyManager] = None, *,
                      slot_id: str = SLOT, motif: str = MOTIF,
-                     garder_clair: bool = False) -> dict:
+                     garder_clair: bool = False, pub: Optional[bytes] = None) -> dict:
     """Chiffre chaque snapshot en clair du dossier. IDEMPOTENT : un snapshot deja chiffre
-    (fichier .enc present) est laisse tel quel. Retourne un compte-rendu."""
+    (fichier .enc present) est laisse tel quel. Retourne un compte-rendu.
+
+    Deux modes :
+      - keyring local (defaut) : DEK wrappee sous la KEK d'un slot -> le poste chiffre ET relit.
+      - `pub` (cle publique X25519) : pour un noeud qu'on ne controle pas seul (le central). Il
+        chiffre sans jamais pouvoir relire ; aucun keyring n'est requis ni souhaitable chez lui."""
     dossier = Path(dossier)
-    km = km or KeyManager()
-    kek = km.get_or_create_slot(slot_id)
+    kek = None
+    if pub is None:
+        km = km or KeyManager()
+        kek = km.get_or_create_slot(slot_id)
     # Compte AVANT : au passage suivant les clairs ont disparu, on ne peut plus les recompter.
     deja = len({p.name for p in dossier.glob(motif + SUFFIXE)})
     r = {"chiffres": 0, "deja_chiffres": deja, "octets": 0, "erreurs": []}
@@ -51,8 +59,9 @@ def chiffrer_dossier(dossier: str | Path, km: Optional[KeyManager] = None, *,
         try:
             clair = src.read_bytes()
             mtime = src.stat().st_mtime
-            blob = seal(clair, kek, slot_id=slot_id,
-                        meta={"nom": src.name, "mtime": int(mtime)})
+            meta = {"nom": src.name, "mtime": int(mtime)}
+            blob = (seal_public(clair, pub, meta=meta) if pub is not None
+                    else seal(clair, kek, slot_id=slot_id, meta=meta))
             tmp = dest.with_suffix(dest.suffix + ".tmp")
             tmp.write_bytes(blob)
             tmp.replace(dest)                       # remplacement atomique : jamais de .enc partiel
@@ -69,14 +78,21 @@ def chiffrer_dossier(dossier: str | Path, km: Optional[KeyManager] = None, *,
 
 
 def dechiffrer_fichier(chemin: str | Path, km: Optional[KeyManager] = None,
-                       dest: Optional[str | Path] = None) -> Path:
-    """Restaure un snapshot chiffre. `dest` par defaut = le nom d'origine, sans `.enc`."""
+                       dest: Optional[str | Path] = None,
+                       priv: Optional[bytes] = None) -> Path:
+    """Restaure un snapshot chiffre. `dest` par defaut = le nom d'origine, sans `.enc`.
+    L'en-tete dit quel mode : `pub` -> cle PRIVEE requise ; sinon keyring local."""
     chemin = Path(chemin)
-    km = km or KeyManager()
     blob = chemin.read_bytes()
     hdr = read_header(blob)
-    kek = km.get_slot(hdr["slot"])                  # KeyMissing si la cle du slot a ete detruite
-    clair = unseal(blob, kek)
+    if hdr.get("mode") == "pub":
+        if priv is None:
+            raise ValueError("snapshot scelle vers une cle publique : cle privee requise (--priv)")
+        clair = unseal_private(blob, priv)
+    else:
+        km = km or KeyManager()
+        kek = km.get_slot(hdr["slot"])              # KeyMissing si la cle du slot a ete detruite
+        clair = unseal(blob, kek)
     sortie = Path(dest) if dest else chemin.with_name(chemin.name[:-len(SUFFIXE)])
     sortie.write_bytes(clair)
     return sortie
@@ -103,11 +119,33 @@ def main() -> int:
     p.add_argument("--list", action="store_true", help="inventaire des snapshots chiffres")
     p.add_argument("--decrypt", default=None, metavar="FICHIER.enc")
     p.add_argument("--dest", default=None)
+    # Mode NOEUD DISTANT : il chiffre avec la publique, il ne relit jamais.
+    p.add_argument("--pubkey", default=None, metavar="FICHIER",
+                   help="cle publique X25519 (base64) : chiffre sans pouvoir dechiffrer")
+    p.add_argument("--priv", default=None, metavar="FICHIER",
+                   help="cle privee X25519 (base64) : pour relire un snapshot scelle")
+    p.add_argument("--genkey", default=None, metavar="PREFIXE",
+                   help="genere une paire -> PREFIXE.priv / PREFIXE.pub")
     a = p.parse_args()
     dossier = Path(a.dir)
 
+    if a.genkey:
+        from . import crypto
+        priv, pub = crypto.gen_keypair()
+        pp, pubp = Path(a.genkey + ".priv"), Path(a.genkey + ".pub")
+        pp.write_text(base64.b64encode(priv).decode(), encoding="utf-8")
+        pubp.write_text(base64.b64encode(pub).decode(), encoding="utf-8")
+        try:
+            os.chmod(pp, 0o600)
+        except OSError:
+            pass
+        print("[snapshots] paire generee : %s (PRIVEE, ne quitte pas ce poste) / %s (publique)"
+              % (pp, pubp))
+        return 0
+
     if a.decrypt:
-        sortie = dechiffrer_fichier(a.decrypt, dest=a.dest)
+        priv = base64.b64decode(Path(a.priv).read_text().strip()) if a.priv else None
+        sortie = dechiffrer_fichier(a.decrypt, dest=a.dest, priv=priv)
         print("[snapshots] restaure -> %s (%d octets)" % (sortie, sortie.stat().st_size))
         return 0
 
@@ -128,9 +166,11 @@ def main() -> int:
         print("[snapshots] relancer avec --apply pour chiffrer.")
         return 0
 
-    r = chiffrer_dossier(dossier, garder_clair=a.keep)
-    print("[snapshots] %d chiffres (%.1f Mo), %d deja chiffres"
-          % (r["chiffres"], r["octets"] / 1e6, r["deja_chiffres"]))
+    pub = base64.b64decode(Path(a.pubkey).read_text().strip()) if a.pubkey else None
+    r = chiffrer_dossier(dossier, garder_clair=a.keep, pub=pub)
+    print("[snapshots] %d chiffres (%.1f Mo), %d deja chiffres%s"
+          % (r["chiffres"], r["octets"] / 1e6, r["deja_chiffres"],
+             " [vers cle publique : ce noeud ne peut pas relire]" if pub else ""))
     for e in r["erreurs"]:
         print("    ERREUR %s" % e)
     return 1 if r["erreurs"] else 0

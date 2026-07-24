@@ -9,7 +9,11 @@ from __future__ import annotations
 import os
 
 from cryptography.exceptions import InvalidTag as _InvalidTag
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric.x25519 import (X25519PrivateKey,
+                                                              X25519PublicKey)
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 NONCE = 12
@@ -57,6 +61,49 @@ def aead_encrypt(key: bytes, nonce: bytes, pt: bytes, aad: bytes) -> bytes:
 def aead_decrypt(key: bytes, nonce: bytes, ct: bytes, aad: bytes) -> bytes:
     """Dechiffre. Leve `InvalidTag` si `aad` ou `ct` a ete falsifie."""
     return AESGCM(key).decrypt(nonce, ct, aad)
+
+
+# --- asymetrique (X25519) : chiffrer sur une machine qui ne doit PAS pouvoir dechiffrer ---
+_SEAL_INFO = b"multiservice-snapshot-seal-v1"
+_SEAL_AAD = b"snapshot-seal"
+
+
+def gen_keypair() -> tuple[bytes, bytes]:
+    """Paire X25519 -> (privee, publique), en octets bruts. La PRIVEE ne quitte pas le poste."""
+    sk = X25519PrivateKey.generate()
+    priv = sk.private_bytes(encoding=serialization.Encoding.Raw,
+                            format=serialization.PrivateFormat.Raw,
+                            encryption_algorithm=serialization.NoEncryption())
+    pub = sk.public_key().public_bytes(encoding=serialization.Encoding.Raw,
+                                       format=serialization.PublicFormat.Raw)
+    return priv, pub
+
+
+def _derive_shared(shared: bytes) -> bytes:
+    return HKDF(algorithm=hashes.SHA256(), length=KEY, salt=None, info=_SEAL_INFO).derive(shared)
+
+
+def seal_to_public(pub: bytes, secret: bytes) -> bytes:
+    """Scelle `secret` vers une cle PUBLIQUE (schema ECIES : X25519 ephemere + HKDF + AES-GCM).
+    Le detenteur de la seule publique peut sceller, JAMAIS ouvrir. Cle ephemere neuve a chaque
+    appel -> deux scellements du meme secret different."""
+    eph = X25519PrivateKey.generate()
+    partagee = _derive_shared(eph.exchange(X25519PublicKey.from_public_bytes(pub)))
+    nonce = gen_nonce()
+    ct = AESGCM(partagee).encrypt(nonce, secret, _SEAL_AAD)
+    epk = eph.public_key().public_bytes(encoding=serialization.Encoding.Raw,
+                                        format=serialization.PublicFormat.Raw)
+    return epk + nonce + ct                       # 32 + 12 + n : format fixe, pas d'ambiguite
+
+
+def open_with_private(priv: bytes, blob: bytes) -> bytes:
+    """Ouvre un scelle avec la cle PRIVEE. Leve `InvalidTag` si ce n'est pas la bonne."""
+    if len(blob) < 32 + NONCE:
+        raise ValueError("scelle trop court")
+    epk, nonce, ct = blob[:32], blob[32:32 + NONCE], blob[32 + NONCE:]
+    sk = X25519PrivateKey.from_private_bytes(priv)
+    partagee = _derive_shared(sk.exchange(X25519PublicKey.from_public_bytes(epk)))
+    return AESGCM(partagee).decrypt(nonce, ct, _SEAL_AAD)
 
 
 def wrap_key(kek: bytes, dek: bytes) -> tuple[bytes, bytes]:

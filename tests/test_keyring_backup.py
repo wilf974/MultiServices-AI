@@ -90,3 +90,21 @@ def test_le_keyring_restaure_dechiffre_un_vrai_snapshot(tmp_path):
                                 KeyManager(base=tmp_path / "keyring"),
                                 dest=tmp_path / "restaure.jsonl")
     assert sortie.read_bytes() == clair
+
+
+def test_le_bundle_couvre_aussi_les_cles_privees_de_snapshots(tmp_path):
+    """La privee X25519 qui ouvre les snapshots du CENTRAL vit aussi dans le keyring : l'oublier
+    dans la sauvegarde reviendrait a perdre les snapshots distants."""
+    import base64
+    from multiservice import crypto
+    km = _keyring_peuple(tmp_path)
+    priv, _ = crypto.gen_keypair()
+    (tmp_path / "keyring" / "central.priv").write_text(base64.b64encode(priv).decode(),
+                                                       encoding="utf-8")
+
+    blob = export_bundle(tmp_path / "keyring", "passphrase")
+    r = import_bundle(blob, "passphrase", tmp_path / "restaure")
+
+    restauree = (tmp_path / "restaure" / "central.priv").read_text(encoding="utf-8")
+    assert base64.b64decode(restauree) == priv
+    assert r["prives"] == 1
