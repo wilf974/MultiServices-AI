@@ -184,6 +184,27 @@ def build_server(journal_path: str = None):
         return curator.curation_report(read_events(jp), **kw)
 
     @srv.tool()
+    def cloture(project: str, k: int = 3) -> dict:
+        """FIN DE SESSION : ce qu'il faut RETENIR, et ce qui attend une DECISION humaine.
+
+        Pendant de `resume` (ouverture). Rend trois questions de cloture, puis les validations en
+        attente — propositions de curation et desaccords entre agents — avec, pour chacune, la
+        commande PRETE et sa reversibilite. PRESENTE, jamais applique : l'humain tranche (C1).
+        Volontairement borne (`k`) : montrer toute la file obtiendrait un « ok » qui ne juge rien.
+        Lecture seule."""
+        cur = None
+        try:
+            from . import curation_report
+            cur = curation_report.dernier_etat(config.CURATION_DIR)
+        except Exception:
+            pass
+        p = _proj()
+        evs = (p.events_by_types(["decision", "correction", "observation", "note", "pitfall",
+                                  "validation", "hypothesis"])
+               if p is not None else read_events(jp))
+        return memory.contrat_cloture(evs, project, k=k, curation=cur)
+
+    @srv.tool()
     def manifeste() -> str:
         """MODE D'EMPLOI de cette memoire, pour un agent qui arrive : par ou commencer, comment
         ecrire, comment repondre a un autre agent, ce qu'il ne faut jamais ecrire, et les trois

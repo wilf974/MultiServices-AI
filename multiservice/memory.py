@@ -958,6 +958,66 @@ def _vue_curation(curation: Optional[Dict[str, Any]], k: int) -> Dict[str, Any]:
             "calcule_le": c.get("as_of"), "propositions": props}
 
 
+QUESTIONS_CLOTURE = (
+    "Qu'as-tu APPRIS que le depot ne dit pas ? (une phrase, --kind decision)",
+    "Un PIEGE a-t-il coute plus de dix minutes ? (--kind pitfall : c'est ce qui sert le plus)",
+    "Une decision anterieure est-elle a REVISER ? (--kind correction --closes <id>)",
+)
+
+
+def contrat_cloture(events: List[AetherEvent], project: str, k: int = 3,
+                    curation: Optional[Dict[str, Any]] = None,
+                    now: Optional[datetime] = None) -> Dict[str, Any]:
+    """Fin de session : ce qu'il faut RETENIR, et ce qui attend une DECISION. PUR, LECTURE SEULE.
+
+    V4 (25/07/2026). A l'ouverture `resume` dit les cinq choses a savoir ; il manquait le pendant.
+    Un agent laisse libre ecrit trop, ou oublie — constat direct sur mes propres entrees.
+
+    Second volet (proposition Wilfred) : PRESENTER les validations en attente pour que l'humain
+    tranche. C1 n'est pas contourne, il devient APPLICABLE — un arbitrage qu'on ne presente jamais
+    n'est pas un arbitrage, c'est un blocage.
+
+    Le risque n'est pas que l'agent decide, c'est l'APPROBATION EN LOT : montrer 43 propositions
+    et obtenir un « ok » respecte C1 dans la forme et le vide dans les faits. D'ou : peu a la fois
+    (`k`), le contenu EXACT de ce qui serait clos, et la REVERSIBILITE affichee — une cloture C3
+    se clot a son tour, rien n'est detruit, une erreur d'arbitrage se repare."""
+    asof = _aware(now) or datetime.now(timezone.utc)
+    a_decider: List[Dict[str, Any]] = []
+
+    props = list((curation or {}).get("proposals") or [])
+    for p in props:
+        a_decider.append({
+            "type": "curation", "action": p.get("action"),
+            "pourquoi": p.get("rationale"),
+            "vise": p.get("targets"), "conserve": p.get("keep"),
+            "command": p.get("command"), "command_reject": p.get("command_reject"),
+            # Une cloture C3 se clot a son tour : l'arbitrage est REPARABLE.
+            "reversible": True,
+        })
+
+    for c in contradictions_ouvertes(events, source_prefix=project, as_of_=asof):
+        a_decider.append({
+            "type": "contradiction",
+            "pourquoi": "%s contredit ce fait de %s" % (", ".join(c["contredit_par"]), c["source"]),
+            "vise": [c["id"]], "texte": c["text"],
+            "command": ('memlog-http "<votre arbitrage>" --kind correction '
+                        '--session arbitrages --closes %s' % c["id"]),
+            "reversible": True,
+        })
+
+    total = len(a_decider)
+    kk = max(0, k)
+    return {
+        "projet": project, "as_of": asof.isoformat(),
+        "questions": list(QUESTIONS_CLOTURE),
+        "a_decider": a_decider[:kk],
+        "counts": {"a_decider": total},     # compteur HONNETE meme quand la liste est coupee
+        "truncated": total > kk,
+        "note": ("Presente, jamais applique : l'humain tranche (C1). Toute cloture est "
+                 "reversible (C3) — on clot, on ne supprime jamais."),
+    }
+
+
 SILENCE_ALERTE_JOURS = 7            # au-dela, une memoire qui ne recoit plus rien est un symptome
 
 

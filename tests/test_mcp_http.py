@@ -22,6 +22,8 @@ READ_TOOLS = {
                         # ordonnee : pieges > sante > etat > recent > revisions.
     "manifeste",        # MODE D'EMPLOI pour un agent qui arrive (V5, 25/07/2026) - lecture seule.
                         # Derive du code, annonce les capacites degradees. A lire avant le reste.
+    "cloture",          # CONTRAT DE FIN DE SESSION (V4, 25/07/2026) - lecture seule. Ce qu'il faut
+                        # retenir + les validations en attente, PRESENTEES et jamais appliquees.
 }
 
 
