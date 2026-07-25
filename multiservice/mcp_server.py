@@ -112,7 +112,7 @@ def build_server(journal_path: str = None):
         return memory.topic_brief(read_events(jp), query, k=k)
 
     @srv.tool()
-    def recent(days: int = 7, source: str = "", limit: int = 20) -> dict:
+    def recent(days: int = 7, source: str = "", limit: int = 20, chars: int = -1) -> dict:
         """« Quoi de neuf » : evenements recents (fenetre `days`) = decisions + corrections +
         derniers evenements textuels. Point d'entree d'une reprise de travail. Lecture seule.
         `source` filtre par projet (ex 'project:MultiService-IA', graphies reconciliees) ;
@@ -120,10 +120,10 @@ def build_server(journal_path: str = None):
         `counts` restent complets et `truncated` signale la coupe."""
         p = _proj()
         if p is not None:
-            return projection.recent_sql(p, days=days,
-                                         source_prefix=(source or None), limit=limit)
-        return memory.recent(read_events(jp), days=days,
-                             source_prefix=(source or None), limit=limit)
+            return projection.recent_sql(p, days=days, source_prefix=(source or None),
+                                         limit=limit, chars=_chars(chars))
+        return memory.recent(read_events(jp), days=days, source_prefix=(source or None),
+                             limit=limit, chars=_chars(chars))
 
     @srv.tool()
     def usage() -> dict:
@@ -182,6 +182,27 @@ def build_server(journal_path: str = None):
         if p is not None:
             return projection.curation_sql(p, **kw)   # types soumis a curation seulement
         return curator.curation_report(read_events(jp), **kw)
+
+    @srv.tool()
+    def resume(project: str, days: int = 14, k: int = 5, chars: int = -1) -> dict:
+        """REPRENDRE un projet en UN appel — a lire en PREMIER, avant tout autre outil.
+
+        Compose, dans cet ordre d'attention : les PIEGES actifs (ce qui a deja coute une erreur),
+        la SANTE du substrat (ses angles morts), l'ETAT du projet (decisions valides/corrigees),
+        le RECENT (ce qui a bouge), les REVISIONS (ce qui a change d'avis, avec le pourquoi C3).
+        `chars=0` rend les textes integraux. Lecture seule ; ne devine rien, compose l'observe."""
+        idx = None
+        try:
+            from .semantic import EmbeddingStore
+            idx = memory.index_coverage(read_events(jp),
+                                        EmbeddingStore(config.EMBED_PATH).load())
+        except Exception:
+            pass                                      # la sante ne doit jamais faire echouer la reprise
+        kw = dict(days=(days or None), k=k, chars=_chars(chars), index=idx)
+        p = _proj()
+        if p is not None:
+            return projection.resume_sql(p, project, **kw)
+        return memory.resume(read_events(jp), project, **kw)
 
     @srv.tool()
     def pitfalls(source: str = "", actifs_seuls: bool = True, k: int = 20,

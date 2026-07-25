@@ -497,3 +497,22 @@ def pitfalls_sql(proj: Projection, **kw):
     """`memory.pitfalls` servi par la projection : prefiltre par type, tres selectif (les pieges
     sont rares par nature, c'est ce qui fait leur valeur). LECTURE SEULE."""
     return memory.pitfalls(proj.events_by_types(["pitfall", "correction"]), **kw)
+
+
+def resume_sql(proj: Projection, project: str, days: int = 14, **kw):
+    """`memory.resume` servi par la projection. La vue compose pieges + sante + revue + recent +
+    revisions : on charge donc les types de la revue UNION les pieges, et on borne par la fenetre
+    quand elle est donnee (c'est elle qui coupe vraiment). LECTURE SEULE."""
+    n = memory._aware(kw.pop("now", None)) or datetime.now(timezone.utc)
+    depuis = (n - timedelta(days=days)).astimezone(timezone.utc).isoformat() if days else None
+    types = sorted(set(_types_revue()) | {"pitfall"})
+    # Les pieges ne se perimant que par cloture CIBLEE, ils doivent rester visibles hors fenetre :
+    # un garde-fou ancien mord toujours. On les charge donc SANS borne temporelle.
+    evs = proj.events_by_types(types, since_iso=depuis) + (
+        proj.events_by_types(["pitfall"]) if depuis else [])
+    vus, uniques = set(), []
+    for e in evs:
+        if e.id not in vus:
+            vus.add(e.id)
+            uniques.append(e)
+    return memory.resume(uniques, project, days=days, now=n, **kw)

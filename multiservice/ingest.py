@@ -16,6 +16,19 @@ from .journal import append_events, read_events
 from .policy import contains_secret
 
 
+def valider_kind(kind: str):
+    """Refus MOTIVE d'un kind inconnu, ou None si valide. PUR.
+
+    Un refus doit ENSEIGNER : « invalid kind » tout seul coute un aller-retour a chaque fois
+    (constat du 25/07 sur `--kind lesson`). Note : `lesson` n'est PAS un kind, et c'est voulu —
+    une lecon est DERIVEE (une correction + les faits qu'elle perime, cf. `memory.lessons_learned`),
+    pas declaree ; en faire un type creerait deux sources de verite pour la meme notion."""
+    if kind in projlog.KINDS:
+        return None
+    return {"status": 422,
+            "error": "invalid kind: %r (attendus : %s)" % (kind, ", ".join(sorted(projlog.KINDS)))}
+
+
 def find_live_duplicate(events, source: str, kind: str, text: str,
                         now: datetime) -> Optional[str]:
     """Id d'un fait VIVANT (non clos C3) de meme source+kind au texte normalise
@@ -113,8 +126,9 @@ def ingest(payload: Dict[str, Any], cn: str, signature: str, body: bytes,
         return {"status": 409, "error": "replay"}
     kind = payload.get("kind", "")
     text = payload.get("text", "")
-    if kind not in projlog.KINDS:
-        return {"status": 422, "error": "invalid kind"}
+    refus = valider_kind(kind)
+    if refus is not None:
+        return refus
     if not text or not text.strip():
         return {"status": 422, "error": "empty text"}
     # Garde anti-gabarit (pollution observee au journal) ; contournement VOLONTAIRE = force (C1).

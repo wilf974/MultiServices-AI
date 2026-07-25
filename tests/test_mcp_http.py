@@ -18,6 +18,8 @@ READ_TOOLS = {
     "as_of",            # etat actif au temps valide T (scaling Phase 3, 17/07/2026) - lecture seule
     "pitfalls",         # les PIEGES connus (25/07/2026) - lecture seule. Ce qui a deja coute une
                         # erreur et ne doit pas la couter deux fois ; remonte en tete d'une reprise.
+    "resume",           # REPRENDRE un projet en UN appel (25/07/2026) - lecture seule. Composition
+                        # ordonnee : pieges > sante > etat > recent > revisions.
 }
 
 

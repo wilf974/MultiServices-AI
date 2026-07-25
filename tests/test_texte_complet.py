@@ -94,3 +94,13 @@ def test_chars_traverse_le_chemin_sql(tmp_path):
     assert projection.reasoning_sql(p, "s1", chars=0)["steps"][0]["text"] == LONG
     # et le defaut reste borne
     assert len(projection.why_sql(p, "t1")[0]["text"]) <= 500
+
+
+def test_recent_rend_aussi_le_texte_integral():
+    """`recent` est l'outil de reprise le plus utilise : c'etait la coupe la plus penalisante,
+    et je l'avais oubliee au premier passage."""
+    evs = [_ev(EventType.DECISION, LONG)]
+    r = memory.recent(evs, days=30, now=T0 + timedelta(days=1), chars=0)
+    assert r["latest"][0]["text"] == LONG
+    borne = memory.recent(evs, days=30, now=T0 + timedelta(days=1))
+    assert len(borne["latest"][0]["text"]) < len(LONG)

@@ -48,23 +48,21 @@ def test_le_plus_recent_d_abord():
 
 def test_un_piege_corrige_est_signale_pas_efface():
     """C3 : on ne supprime jamais. Un piege revise doit rester lisible AVEC son drapeau, sinon
-    on perd le « pourquoi ca a change »."""
-    evs = [
-        _ev(EventType.PITFALL, "il faut passer par la variable X", 0),
-        _ev(EventType.CORRECTION, "en fait X a ete supprime, utiliser Y", 1),
-    ]
-    out = memory.pitfalls(evs)
+    on perd le « pourquoi ca a change ». La revision se declare par une cloture CIBLEE."""
+    piege = _ev(EventType.PITFALL, "il faut passer par la variable X", 0)
+    corr = _ev(EventType.CORRECTION, "en fait X a ete supprime, utiliser Y", 1)
+    corr.data["closes"] = [piege.id]
+    out = memory.pitfalls([piege, corr])
     p = out["pieges"][0]
     assert p["superseded"] is True and p["corrected_by"]
 
 
 def test_pieges_actifs_seulement_sur_demande():
     """Pour une REPRISE, on veut d'abord ce qui mord encore."""
-    evs = [
-        _ev(EventType.PITFALL, "piege perime", 0),
-        _ev(EventType.CORRECTION, "ne s'applique plus", 1),
-        _ev(EventType.PITFALL, "piege toujours valable", 2, sid="s2"),
-    ]
+    perime = _ev(EventType.PITFALL, "piege perime", 0)
+    corr = _ev(EventType.CORRECTION, "ne s'applique plus", 1)
+    corr.data["closes"] = [perime.id]
+    evs = [perime, corr, _ev(EventType.PITFALL, "piege toujours valable", 2, sid="s2")]
     out = memory.pitfalls(evs, actifs_seuls=True)
     assert out["counts"]["pieges"] == 1
     assert out["pieges"][0]["text"] == "piege toujours valable"
@@ -163,3 +161,41 @@ def test_un_piege_reste_non_autoritaire_pour_le_modele():
     doit ni etre refuse au modele, ni le laisser trancher a la place de l'humain."""
     from multiservice import memory_tools
     assert "pitfall" not in memory_tools.AUTHORITATIVE_KINDS
+
+
+# --- ergonomie d'ECRITURE : un refus doit enseigner, pas juste refuser ---
+
+def test_kind_invalide_liste_les_kinds_valides():
+    """Vecu le 25/07 : `--kind lesson` a ete refuse par un laconique « invalid kind ». Un refus
+    qui n'indique pas quoi faire coute un aller-retour a chaque fois."""
+    from multiservice import ingest, projlog
+    r = ingest.valider_kind("lesson")
+    assert r is not None
+    assert "lesson" in r["error"]
+    for attendu in ("decision", "correction", "pitfall"):
+        assert attendu in r["error"], attendu
+
+
+def test_kind_valide_passe():
+    from multiservice import ingest
+    assert ingest.valider_kind("pitfall") is None
+
+
+def test_lesson_n_est_pas_un_kind_et_c_est_voulu():
+    """Une lecon est DERIVEE (une correction + les faits qu'elle perime), pas declaree : en faire
+    un type creerait deux sources de verite pour la meme notion."""
+    from multiservice import projlog
+    assert "lesson" not in projlog.KINDS
+    assert "correction" in projlog.KINDS
+
+
+def test_une_correction_sans_rapport_ne_perime_pas_un_piege():
+    """Constat 25/07 : le supersede session+temps faisait disparaitre un avertissement encore
+    valable des qu'une correction sans rapport tombait dans la meme session. Un garde-fou ne se
+    perime pas par voisinage — seule une cloture CIBLEE le retire."""
+    evs = [
+        _ev(EventType.PITFALL, "ne jamais committer depuis le bac a sable", 0),
+        _ev(EventType.CORRECTION, "en fait le jsonl pesait 5x trop", 3),
+    ]
+    out = memory.pitfalls(evs, actifs_seuls=True)
+    assert out["counts"]["pieges"] == 1

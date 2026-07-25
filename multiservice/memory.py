@@ -431,7 +431,7 @@ def topic_brief(events: List[AetherEvent], query: str, k: int = 5,
     }
 
 
-def recent(events: List[AetherEvent], days: int = 7,
+def recent(events: List[AetherEvent], days: int = 7, chars: Optional[int] = None,
            now: Optional[datetime] = None, k: int = 10,
            source_prefix: Optional[str] = None,
            limit: Optional[int] = 20) -> Dict[str, Any]:
@@ -459,7 +459,7 @@ def recent(events: List[AetherEvent], days: int = 7,
     def brief(e: AetherEvent) -> Dict[str, Any]:
         return {"id": e.id, "type": e.type.value, "source": e.source,
                 "valid_from": _aware(e.valid_from).isoformat(),
-                "session_id": e.data.get("session_id"), "text": _text(e)[:160]}
+                "session_id": e.data.get("session_id"), "text": _coupe(_text(e), 160, chars)}
 
     decisions = [e for e in rec if e.type == EventType.DECISION]
     corrections = [e for e in rec if e.type == EventType.CORRECTION]
@@ -730,7 +730,6 @@ def pitfalls(events: List[AetherEvent], source_prefix: Optional[str] = None,
     jamais, on signale. `actifs_seuls=True` ne garde que ce qui mord encore (usage : la reprise).
     Sortie bornee (`k`), `counts` COMPLET, `truncated` signale la coupe."""
     asof = _aware(as_of) or datetime.now(timezone.utc)
-    corr_idx = _corrections_index(events)
     closes_idx = _closes_index(events, as_of=asof)
     floor = datetime.min.replace(tzinfo=timezone.utc)
 
@@ -743,8 +742,11 @@ def pitfalls(events: List[AetherEvent], source_prefix: Optional[str] = None,
         vf = _aware(e.valid_from)
         if vf and vf > asof:
             continue                                  # pas encore valide (bi-temporel)
-        corrected = (_superseded_by(corr_idx, e.data.get("session_id"), vf)
-                     + _closed_by(closes_idx, e.id))
+        # Un piege n'est perime que par une cloture CIBLEE (`data.closes`) ou un `valid_to`.
+        # Le supersede session+temps, lui, vise les fils de raisonnement : applique aux pieges il
+        # ferait disparaitre un avertissement encore valable des qu'une correction SANS RAPPORT
+        # tombe dans la meme session (constat 25/07). Un garde-fou ne se perime pas par voisinage.
+        corrected = _closed_by(closes_idx, e.id)
         vt = _aware(e.valid_to)
         clos = bool(vt and vt <= asof)
         if actifs_seuls and (corrected or clos):
@@ -762,6 +764,48 @@ def pitfalls(events: List[AetherEvent], source_prefix: Optional[str] = None,
     } for e, corrected, clos in retenus[:kk]]
     return {"as_of": asof.isoformat(), "counts": {"pieges": total},
             "truncated": total > kk, "pieges": items}
+
+
+def resume(events: List[AetherEvent], project: str, days: Optional[int] = 14,
+           k: int = 5, chars: Optional[int] = None, index: Optional[Dict[str, Any]] = None,
+           now: Optional[datetime] = None) -> Dict[str, Any]:
+    """REPRENDRE un projet en UN appel. PUR, LECTURE SEULE, borne.
+
+    Pourquoi : reprendre exigeait d'enchainer health + recent + brief + recall + project_review,
+    plus les fichiers du depot — une dizaine d'aller-retours avant la premiere ligne utile
+    (constat d'usage du 24/07/2026). Toutes les briques existaient ; il manquait la COMPOSITION.
+
+    L'ORDRE fait la valeur — une vue de reprise est une hierarchie d'attention, pas un dump :
+      1. `pieges`    ce qui a deja coute une erreur (actifs seuls)
+      2. `sante`     les angles morts du substrat lui-meme
+      3. `etat`      ou en est le projet (decisions valides/corrigees, validations)
+      4. `recent`    ce qui a bouge dans la fenetre
+      5. `revisions` ce qui a CHANGE d'avis, avec le pourquoi (C3)
+
+    Ne devine rien, ne juge rien : compose l'observe, chaque element date et source."""
+    asof = _aware(now) or datetime.now(timezone.utc)
+    pieges = pitfalls(events, source_prefix=project, actifs_seuls=True, k=k, chars=chars,
+                      as_of=asof)
+    sante = health(events, index=index, now=asof)
+    etat = project_review(events, project, days=days, k=k, chars=chars, now=asof)
+    dernier = recent(events, days=days or 3650, source_prefix=project, limit=k, now=asof,
+                     chars=chars)
+    lecons = lessons_learned(events, as_of=asof, source_prefix=project, k=k, standing_k=0,
+                             chars=chars)
+    return {
+        "projet": project,
+        "as_of": asof.isoformat(),
+        "fenetre_jours": days,
+        "pieges": pieges["pieges"],
+        "sante": {"degraded": sante["degraded"], "warnings": sante["warnings"],
+                  "event_count": sante["event_count"], "last_event_at": sante["last_event_at"]},
+        "etat": {"counts": etat["counts"],
+                 "decisions_valides": etat["decisions_valides"],
+                 "decisions_corrigees": etat["decisions_corrigees"]},
+        "recent": dernier["latest"][:max(0, k)],      # `recent` borne decisions/corrections, pas `latest`
+        "revisions": lecons["lessons"],
+        "counts": {"pieges": pieges["counts"]["pieges"], "revisions": lecons["counts"]["lessons"]},
+    }
 
 
 SILENCE_ALERTE_JOURS = 7            # au-dela, une memoire qui ne recoit plus rien est un symptome
