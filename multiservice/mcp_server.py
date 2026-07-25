@@ -184,6 +184,23 @@ def build_server(journal_path: str = None):
         return curator.curation_report(read_events(jp), **kw)
 
     @srv.tool()
+    def manifeste() -> str:
+        """MODE D'EMPLOI de cette memoire, pour un agent qui arrive : par ou commencer, comment
+        ecrire, comment repondre a un autre agent, ce qu'il ne faut jamais ecrire, et les trois
+        regles constitutionnelles qui s'imposent a lui. Derive du code (jamais recopie) et annonce
+        les capacites DEGRADEES du moment. A lire avant tout le reste. Lecture seule."""
+        from . import manifeste as _man
+        sante = None
+        try:
+            from .semantic import EmbeddingStore
+            evs = read_events(jp)
+            idx = memory.index_coverage(evs, EmbeddingStore(config.EMBED_PATH).load())
+            sante = memory.health(evs, index=idx)
+        except Exception:
+            pass                                      # le mode d'emploi vaut meme sans diagnostic
+        return _man.rendre(sante=sante)
+
+    @srv.tool()
     def resume(project: str, days: int = 14, k: int = 5, chars: int = -1) -> dict:
         """REPRENDRE un projet en UN appel — a lire en PREMIER, avant tout autre outil.
 
