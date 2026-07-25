@@ -51,6 +51,18 @@ def valider_champs_structures(data):
             return {"status": 422,
                     "error": "invalid %s : %d caracteres (max %d — au-dela c'est de la prose, "
                              "elle a sa place dans le texte)" % (champ, len(val), borne)}
+    verdict = data.get("verdict")
+    if verdict is not None:
+        from .memory import VERDICTS
+        if verdict not in VERDICTS:
+            return {"status": 422,
+                    "error": "invalid verdict: %r (attendus : %s)" % (verdict, ", ".join(VERDICTS))}
+        if not isinstance(data.get("rates"), list) or not data.get("rates"):
+            return {"status": 422, "error": "verdict exige rates (ids du souvenir evalue)"}
+    rates = data.get("rates")
+    if rates is not None:
+        if not isinstance(rates, list) or not all(isinstance(x, str) and x for x in rates):
+            return {"status": 422, "error": "invalid rates (liste d'ids attendue)"}
     refs = data.get("refs")
     if refs is not None:
         if not isinstance(refs, list) or not all(isinstance(x, str) and x for x in refs):

@@ -159,9 +159,15 @@ def find_stale_candidates(events: List[AetherEvent], now: Optional[datetime] = N
     cutoff = asof - timedelta(days=older_than_days)
     corr_idx = _corrections_index(events)
     floor = datetime.min.replace(tzinfo=timezone.utc)
+    # V2 (25/07) : un souvenir qui a deja EVITE UNE ERREUR est epargne. C'est precisement celui
+    # qu'on peririmerait, faute de l'avoir vu agir — l'age seul est un mauvais juge de la valeur.
+    from .memory import utilite as _utilite
+    eprouves = {i for i, u in _utilite(events).items() if u.get("prevented_error", 0) > 0}
     out = []
     for e in _facts(events, asof, source_prefix):
         if e.type != EventType.DECISION:
+            continue
+        if e.id in eprouves:
             continue
         vf = _aware(e.valid_from)
         if vf is None or vf >= cutoff:

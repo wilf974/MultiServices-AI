@@ -79,6 +79,42 @@ def _structure(e: AetherEvent) -> Dict[str, Any]:
             if isinstance(e.data, dict) and e.data.get(c) not in (None, "", [], {})}
 
 
+VERDICTS = ("useful", "useless", "prevented_error")   # ensemble FERME : un verdict libre rendrait
+                                                       # l'agregation ininterpretable
+
+
+def utilite(events: List[AetherEvent]) -> Dict[str, Dict[str, int]]:
+    """Ce que chaque souvenir a SERVI, agrege par verdict. PUR, LECTURE SEULE.
+
+    V2 (25/07/2026) : aucun signal ne disait quel souvenir avait evite une erreur, lequel n'avait
+    jamais ete relu — `usage` mesure des tokens, pas de la valeur. Sans ce retour, la curation
+    DEVINE ce qu'il faut perimer.
+
+    Un retour est un evenement comme un autre (append-only, C3) qui POINTE vers le souvenir servi,
+    sur le patron de `data.closes` : `data.rates=[ids]` + `data.verdict`. Un souvenir sans retour
+    n'apparait pas : l'absence de signal n'est pas un signal."""
+    out: Dict[str, Dict[str, int]] = {}
+    for e in events:
+        data = e.data if isinstance(e.data, dict) else {}
+        cibles = data.get("rates")
+        verdict = data.get("verdict")
+        if not isinstance(cibles, list) or verdict not in VERDICTS:
+            continue
+        for cid in cibles:
+            if isinstance(cid, str) and cid:
+                out.setdefault(cid, {v: 0 for v in VERDICTS})[verdict] += 1
+    return out
+
+
+def protege_par_utilite(events: List[AetherEvent], event_id: str) -> bool:
+    """Ce souvenir a-t-il deja EVITE UNE ERREUR ? PUR.
+
+    LE point de V2 : un garde-fou qui a servi une seule fois vaut d'etre garde — c'est
+    precisement celui qu'on peririmerait, faute de l'avoir vu agir. La curation doit le laisser
+    tranquille."""
+    return utilite(events).get(event_id, {}).get("prevented_error", 0) > 0
+
+
 def _corrections_index(events: List[AetherEvent]) -> Dict[Any, list]:
     """Index des `correction` par session : {session_id: [(valid_from, id), ...]}. PUR.
     Sert le drapeau de fraicheur C3 : un hit corrige plus tard ne doit pas etre cite sans reserve."""
@@ -235,6 +271,7 @@ def recall(events: List[AetherEvent], query: str, as_of: Optional[datetime] = No
     asof = _aware(as_of) or datetime.now(timezone.utc)
     corr_idx = _corrections_index(events)            # C3 : fraicheur (correction posterieure ?)
     closes_idx = _closes_index(events, as_of=asof)   # clotures CIBLEES (curation)
+    util = utilite(events)                           # V2 : ce que chaque souvenir a SERVI
     hits = []
     for e in events:
         if type_ and e.type.value != type_:
@@ -265,6 +302,7 @@ def recall(events: List[AetherEvent], query: str, as_of: Optional[datetime] = No
             "superseded": bool(corrected),           # C3 : corrige plus tard ? (a citer avec reserve)
             "corrected_by": corrected,
             **_structure(e),                         # rationale / pitfall / command / refs si ecrits
+            **({"utilite": util[e.id]} if e.id in util else {}),   # V2 : ce que ca a SERVI
         })
     hits.sort(key=lambda h: (h["score"], h["valid_from"] or ""), reverse=True)
     return hits[:k]

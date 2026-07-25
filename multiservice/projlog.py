@@ -42,7 +42,9 @@ KINDS = {"decision": EventType.DECISION,
 
 # Champs STRUCTURES optionnels, a cote du texte (jamais a sa place). Ils evitent d'encoder de la
 # structure en prose : un futur lecteur scanne les `text`, puis descend dans le detail au besoin.
-CHAMPS_STRUCTURES = ("rationale", "pitfall", "command", "refs")
+# `rates` + `verdict` (V2, 25/07) : un RETOUR D'USAGE pointe vers le souvenir servi. Un signal
+# qu'on ne peut pas emettre ne sert a rien - lecon du type PITFALL, ajoute mais refuse a l'ingest.
+CHAMPS_STRUCTURES = ("rationale", "pitfall", "command", "refs", "rates", "verdict")
 
 
 def make_event(kind: str, text: str, source: str = "project:local",

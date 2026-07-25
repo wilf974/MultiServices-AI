@@ -55,6 +55,13 @@ def main() -> None:
                    help="la commande a retenir (max 500 car.)")
     p.add_argument("--ref", dest="refs", action="append", default=[],
                    help="commit / fichier / id (repetable, max 20)")
+    # V2 : RETOUR D'USAGE - dire ce qu'un souvenir a servi. Sans ce signal, la curation devine.
+    p.add_argument("--utile", default="", metavar="IDS",
+                   help="ids (virgules) du souvenir qui a SERVI")
+    p.add_argument("--inutile", default="", metavar="IDS",
+                   help="ids (virgules) du souvenir qui n'a PAS servi ici")
+    p.add_argument("--a-evite-erreur", dest="evite", default="", metavar="IDS",
+                   help="ids (virgules) du souvenir qui a EVITE une erreur (le protege)")
     p.add_argument("--rejects", default="",
                    help="proposition de curation REJETEE : ids cibles (virgules)")
     a = p.parse_args()
@@ -82,6 +89,12 @@ def main() -> None:
             data[champ] = val.strip()
     if a.refs:
         data["refs"] = [r.strip() for r in a.refs if r.strip()]
+    for champ, verdict in (("utile", "useful"), ("inutile", "useless"),
+                           ("evite", "prevented_error")):
+        ids = [x.strip() for x in getattr(a, champ, "").split(",") if x.strip()]
+        if ids:
+            data["rates"], data["verdict"] = ids, verdict
+            break
     if closes and a.kind != "correction":
         print("[memlog-http] REFUS : --closes exige --kind correction (cloture C3)")
         raise SystemExit(2)
