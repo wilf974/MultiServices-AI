@@ -1,0 +1,29 @@
+{
+  "$comment": [
+    "V1 MEMOIRE VIVANTE (25/07/2026) - rappel PROACTIF des pieges.",
+    "Le constat qui a ouvert l'acte III : le piege 'builder n'est pas redeployer' etait dans la",
+    "memoire UNE HEURE avant que l'erreur soit commise, et n'a arrete personne. Ce hook inverse",
+    "la charge : la memoire s'impose au bon moment au lieu d'attendre une requete.",
+    "Il AVERTIT, il ne bloque JAMAIS (code retour 0 quoi qu'il arrive) - C1 : la memoire observe,",
+    "elle ne juge ni n'agit. Silencieux quand rien ne mord : un garde-fou qui crie n'est plus lu.",
+    "Cout mesure : 0,37 s, et seuls les pieges sont charges (rares par nature).",
+    "PIEGE (25/07) : sous Windows, 'python3' resout vers l'alias WindowsApps - un interpreteur",
+    "DIFFERENT de 'python', sans les dependances du projet. Le hook echouait a chaque appel avec",
+    "ModuleNotFoundError: pydantic. On utilise donc 'python' (dans le PATH), jamais un chemin",
+    "absolu : ce fichier est VERSIONNE et le depot est public."
+  ],
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m multiservice.rappel",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

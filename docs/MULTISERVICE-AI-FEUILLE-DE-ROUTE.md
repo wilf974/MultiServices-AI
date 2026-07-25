@@ -140,3 +140,57 @@ cache-friendly (optionnel) · O3 tiering · O4 Neo4j à l'échelle.
 Tout le cadre est figé (`DECISIONS.md`). Sprint 13 = **capture via routeur minimal**, un
 seul backend, types d'événements + intégrité C2/C3. On regarde le réel. Puis on calibre.
 Comme d'habitude.
+
+---
+
+## Acte III — MÉMOIRE VIVANTE (25 juillet 2026)
+
+> **Le constat qui ouvre cet acte.** Le 25/07, le piège « builder n'est pas redéployer » était
+> dans la mémoire **une heure avant** que l'erreur soit commise. Il n'a arrêté personne : il a
+> fallu constater l'échec, puis penser à aller voir. **La mémoire avait la réponse et est restée
+> muette.** Tout le reste de cet acte en découle.
+>
+> Une mémoire vivante ne se consulte pas : elle **s'impose au bon moment**. La rendre vivante,
+> ce n'est pas lui donner du pouvoir (elle observe, elle ne juge ni n'agit — C1 tient) ;
+> c'est lui donner le bon **timing**.
+
+### V1 — Rappel PROACTIF déclenché par le geste  ⟵ *le saut*
+La mémoire observe ce qui se fait (commande sur le point d'être lancée, fichier touché, erreur
+reçue) et **pousse** ce qui mord, au lieu d'attendre une requête. Bibliothèque -> **garde-fou**.
+Réalisable : les hooks existent côté agent, `pitfalls` existe, il manque la colle.
+*Seul point qui change la façon de travailler d'un agent, pas seulement son confort.*
+
+### V2 — Boucle de rétroaction : mesurer ce qui SERT
+Aucun signal ne dit aujourd'hui quel souvenir a évité une erreur, lequel n'a jamais été relu
+(`usage` mesure des tokens, pas de la valeur). Sans ce retour, la curation **devine** ce qu'il
+faut périmer. Marquer un souvenir servi (« m'a évité une erreur » / « inutile ici ») ; trois
+semaines de signal suffisent à savoir quoi promouvoir et quoi laisser mourir.
+
+### V3 — Protocole INTER-AGENTS : une conversation, pas quatre monologues
+Quatre sources écrivent déjà (Claude, ChatGPT 37 % du corpus, Ollama, humain) et **personne ne
+répond à personne**. Ajouter, à côté de `closes` : `confirms` / `contradicts` / `refines`.
+Un fait confirmé par trois agents ne vaut pas un fait dit une fois ; un fait contredit doit
+remonter comme « à trancher » (l'humain arbitre — C1).
+
+### V4 — Contrat de session
+À l'ouverture, la mémoire dit les 5 choses à savoir (`resume` le fait déjà). À la clôture, elle
+demande les 3 choses à retenir. Un agent à qui l'on demande « qu'as-tu appris ? » écrit mieux
+qu'un agent laissé libre — constat direct : mes entrées du 24/07 étaient des pavés, celles du
+25/07 (schéma structuré + question posée) sont exploitables.
+
+### V5 — Manifeste d'usage : utilisable par TOUTE IA
+La surface est déjà ouverte (18 outils MCP, API web). Ce qui manque pour « n'importe quel
+agent » : un document que l'agent lit EN PREMIER — comment écrire, quoi écrire, quoi ne jamais
+écrire. Aujourd'hui c'est `CLAUDE.md`, spécifique à un seul agent. Servi par la mémoire
+elle-même, il rend n'importe quelle IA immédiatement compétente.
+
+### Reporté sur constat de terrain — mémoire PROCÉDURALE
+`procedural.py` (Phase 1) est prêt et testé, mais le corpus ne produit **aucun** playbook :
+23 `tool_call` en tout, 0 candidat. Le travail réel ne passe pas par le chat. Re-mesurer vers
+le **15 août 2026**, après quelques semaines de champ `command` systématiquement rempli — la
+matière viendra de là, pas des séquences d'outils. *Calibrer sur le réel, jamais à l'aveugle.*
+
+### Ce qu'on ne fera PAS
+Rendre la mémoire autonome dans ses décisions. « Elle observe, elle ne juge ni n'agit » est ce
+qui la rend **auditable** : une mémoire qui décide de ce qui est vrai devient un oracle qu'on ne
+peut plus vérifier.
