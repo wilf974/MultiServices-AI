@@ -67,6 +67,18 @@ def _coupe(txt: str, defaut: int, chars: Optional[int] = None) -> str:
     return txt[:n]
 
 
+CHAMPS_STRUCTURES = ("rationale", "pitfall", "command", "refs")
+
+
+def _structure(e: AetherEvent) -> Dict[str, Any]:
+    """Champs structures presents sur l'event, absents sinon. PUR.
+
+    Economie de sortie : un champ vide n'encombre pas la reponse. Ce qu'on ecrit structure doit se
+    RELIRE structure, sinon l'effort d'ecriture est perdu et le lecteur re-parse de la prose."""
+    return {c: e.data[c] for c in CHAMPS_STRUCTURES
+            if isinstance(e.data, dict) and e.data.get(c) not in (None, "", [], {})}
+
+
 def _corrections_index(events: List[AetherEvent]) -> Dict[Any, list]:
     """Index des `correction` par session : {session_id: [(valid_from, id), ...]}. PUR.
     Sert le drapeau de fraicheur C3 : un hit corrige plus tard ne doit pas etre cite sans reserve."""
@@ -252,6 +264,7 @@ def recall(events: List[AetherEvent], query: str, as_of: Optional[datetime] = No
             "score": round(sc, 1), "text": _snippet(txt, query),
             "superseded": bool(corrected),           # C3 : corrige plus tard ? (a citer avec reserve)
             "corrected_by": corrected,
+            **_structure(e),                         # rationale / pitfall / command / refs si ecrits
         })
     hits.sort(key=lambda h: (h["score"], h["valid_from"] or ""), reverse=True)
     return hits[:k]
@@ -641,7 +654,8 @@ def project_review(events: List[AetherEvent], project: str, days: Optional[int] 
     def brief(e: AetherEvent, extra: Optional[dict] = None) -> Dict[str, Any]:
         vf = _aware(e.valid_from)
         d = {"id": e.id, "type": e.type.value, "session": e.data.get("session_id"),
-             "valid_from": vf.isoformat() if vf else None, "text": _coupe(_text(e), 200, chars)}
+             "valid_from": vf.isoformat() if vf else None, "text": _coupe(_text(e), 200, chars),
+             **_structure(e)}
         if extra:
             d.update(extra)
         return d
@@ -1011,6 +1025,7 @@ def recall_semantic(events: List[AetherEvent], query: str, embedder, store,
             "fused": fused, "semantic": round(sem_n, 4), "lexical": round(lex, 4),
             "text": _snippet(_text(e), query),
             "superseded": bool(corrected), "corrected_by": corrected,
+            **_structure(e),
         }
         if explain:
             h["semantic_norm"] = round(sem_n, 4)

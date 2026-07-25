@@ -29,6 +29,38 @@ def valider_kind(kind: str):
             "error": "invalid kind: %r (attendus : %s)" % (kind, ", ".join(sorted(projlog.KINDS)))}
 
 
+
+# Bornes de bon sens : au-dela, ce n'est plus un champ structure mais de la prose deguisee.
+_BORNES_STRUCTURE = {"rationale": 1000, "pitfall": 1000, "command": 500}
+_MAX_REFS = 20
+
+
+def valider_champs_structures(data):
+    """Refus MOTIVE des champs structures (`rationale` / `pitfall` / `command` / `refs`), ou None.
+    PUR. Le refus dit QUEL champ et ce qui etait attendu — un refus doit enseigner."""
+    if not isinstance(data, dict):
+        return None
+    for champ, borne in _BORNES_STRUCTURE.items():
+        val = data.get(champ)
+        if val is None:
+            continue
+        if not isinstance(val, str):
+            return {"status": 422,
+                    "error": "invalid %s (chaine attendue, recu %s)" % (champ, type(val).__name__)}
+        if len(val) > borne:
+            return {"status": 422,
+                    "error": "invalid %s : %d caracteres (max %d — au-dela c'est de la prose, "
+                             "elle a sa place dans le texte)" % (champ, len(val), borne)}
+    refs = data.get("refs")
+    if refs is not None:
+        if not isinstance(refs, list) or not all(isinstance(x, str) and x for x in refs):
+            return {"status": 422, "error": "invalid refs (liste de chaines non vides attendue)"}
+        if len(refs) > _MAX_REFS:
+            return {"status": 422,
+                    "error": "invalid refs : %d entrees (max %d)" % (len(refs), _MAX_REFS)}
+    return None
+
+
 def find_live_duplicate(events, source: str, kind: str, text: str,
                         now: datetime) -> Optional[str]:
     """Id d'un fait VIVANT (non clos C3) de meme source+kind au texte normalise
@@ -145,6 +177,9 @@ def ingest(payload: Dict[str, Any], cn: str, signature: str, body: bytes,
     extra = payload.get("data")
     if extra is not None and not isinstance(extra, dict):
         return {"status": 422, "error": "invalid data (objet attendu)"}
+    refus_struct = valider_champs_structures(extra)
+    if refus_struct is not None:
+        return refus_struct
     if isinstance(extra, dict):
         for key in ("closes", "rejects"):
             if key in extra:

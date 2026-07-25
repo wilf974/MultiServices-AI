@@ -40,9 +40,18 @@ KINDS = {"decision": EventType.DECISION,
          "pitfall": EventType.PITFALL}
 
 
+# Champs STRUCTURES optionnels, a cote du texte (jamais a sa place). Ils evitent d'encoder de la
+# structure en prose : un futur lecteur scanne les `text`, puis descend dans le detail au besoin.
+CHAMPS_STRUCTURES = ("rationale", "pitfall", "command", "refs")
+
+
 def make_event(kind: str, text: str, source: str = "project:local",
-               session_id: str = "project", now: Optional[datetime] = None) -> AetherEvent:
-    """Construit un evenement de journal de projet (decision/correction/note). PUR, C2/C3."""
+               session_id: str = "project", now: Optional[datetime] = None,
+               **structure) -> AetherEvent:
+    """Construit un evenement de journal de projet (decision/correction/note). PUR, C2/C3.
+
+    `structure` accepte les champs OPTIONNELS `rationale` / `pitfall` / `command` / `refs`.
+    Un champ absent n'est pas ecrit : ce qui n'est pas dit n'existe pas (on ne devine rien)."""
     if kind not in KINDS:
         raise ValueError(f"kind invalide : {kind} (attendu : {', '.join(KINDS)})")
     if not text or not text.strip():
@@ -51,15 +60,17 @@ def make_event(kind: str, text: str, source: str = "project:local",
     source = canonical(source)                        # C2 : cle de routage canonique a l'ecriture
     return AetherEvent(
         type=KINDS[kind], title=kind, description=text, source=source, observed_at=ts,
-        data={"text": text, "session_id": session_id, "turn_id": str(uuid.uuid4())},
+        data={"text": text, "session_id": session_id, "turn_id": str(uuid.uuid4()),
+              **{c: structure[c] for c in CHAMPS_STRUCTURES
+                 if structure.get(c) not in (None, "", [], {})}},
     )
 
 
 def log(journal_path, kind: str, text: str, source: str = "project:local",
-        session_id: str = "project", now: Optional[datetime] = None) -> int:
+        session_id: str = "project", now: Optional[datetime] = None, **structure) -> int:
     """Ajoute l'evenement au journal (append-only). Ecriture humaine/agent, jamais via le MCP."""
     return append_events(journal_path, [make_event(kind, text, source=source,
-                                                   session_id=session_id, now=now)])
+                                                   session_id=session_id, now=now, **structure)])
 
 
 def main() -> None:

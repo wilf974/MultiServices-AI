@@ -45,6 +45,16 @@ def main() -> None:
     p.add_argument("--closes", default="",
                    help="curation approuvee : ids a CLORE precisement (virgules) ; "
                         "exige --kind correction, session neutre recommandee (curation-closures)")
+    # Champs STRUCTURES (25/07/2026) : cesser d'encoder de la structure en prose. Un futur lecteur
+    # scanne les textes, puis descend dans le detail au besoin.
+    p.add_argument("--pourquoi", dest="rationale", default="",
+                   help="la RAISON du fait (max 1000 car.)")
+    p.add_argument("--piege", dest="pitfall", default="",
+                   help="le garde-fou revele par ce fait (max 1000 car.)")
+    p.add_argument("--commande", dest="command", default="",
+                   help="la commande a retenir (max 500 car.)")
+    p.add_argument("--ref", dest="refs", action="append", default=[],
+                   help="commit / fichier / id (repetable, max 20)")
     p.add_argument("--rejects", default="",
                    help="proposition de curation REJETEE : ids cibles (virgules)")
     a = p.parse_args()
@@ -66,6 +76,12 @@ def main() -> None:
         data["closes"] = closes                      # cloture CIBLEE (lue par _closes_index)
     if rejects:
         data["rejects"] = rejects                    # le journal EST la file (plus de pending)
+    for champ, val in (("rationale", a.rationale), ("pitfall", a.pitfall),
+                       ("command", a.command)):
+        if val.strip():
+            data[champ] = val.strip()
+    if a.refs:
+        data["refs"] = [r.strip() for r in a.refs if r.strip()]
     if closes and a.kind != "correction":
         print("[memlog-http] REFUS : --closes exige --kind correction (cloture C3)")
         raise SystemExit(2)
