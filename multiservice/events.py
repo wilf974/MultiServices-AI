@@ -40,6 +40,10 @@ class EventType(str, Enum):
     VALIDATION = "validation"
     # --- gouvernance : intent d'effacement RGPD (crypto-shred, cf. docs/ENCRYPTION-AT-REST.md) ---
     ERASURE = "erasure"
+    # --- PIEGE : ce qui a deja coute une erreur et ne doit pas la couter deux fois.
+    # Type a part entiere (donc filtrable et indexe) parce qu'un agent sans continuite refait
+    # l'erreur si l'avertissement est noye dans un pave. Remonte EN TETE d'une reprise.
+    PITFALL = "pitfall"
     MIGRATION = "migration"
 
 

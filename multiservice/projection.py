@@ -356,15 +356,16 @@ def brief_sql(proj: Projection, query: str, k: int = 5, as_of=None):
     return memory.topic_brief(proj.events_for_recall(query), query, k=k, as_of=as_of)
 
 
-def why_sql(proj: Projection, turn_id: str):
+def why_sql(proj: Projection, turn_id: str, **kw):
     """`memory.why` servi par la projection : prefiltre EXACT sur le tour. LECTURE SEULE."""
-    return memory.why(proj.events_by_turn(turn_id), turn_id)
+    return memory.why(proj.events_by_turn(turn_id), turn_id, **kw)
 
 
-def replay_sql(proj: Projection, session_id: str, digest: bool = True):
+def replay_sql(proj: Projection, session_id: str, digest: bool = True, **kw):
     """`memory.replay_session` / `session_digest` servis par la projection. LECTURE SEULE."""
     evs = proj.events_by_session(session_id)
-    return memory.session_digest(evs, session_id) if digest else memory.replay_session(evs, session_id)
+    return (memory.session_digest(evs, session_id) if digest
+            else memory.replay_session(evs, session_id, **kw))
 
 
 def reasoning_sql(proj: Projection, session_id: str, **kw):
@@ -424,13 +425,13 @@ def usage_sql(proj: Projection, **kw):
     return memory.reuse_stats(proj.events_by_types(["token_usage"]), **kw)
 
 
-def replay_event_sql(proj: Projection, event_id: str, depth: int = 3):
+def replay_event_sql(proj: Projection, event_id: str, depth: int = 3, **kw):
     """`memory.replay_event` servi par la projection : la chaine causale remonte la SESSION de
     l'event focus -> une requete pour trouver la session, une pour la charger. LECTURE SEULE."""
     sid = proj.session_of(event_id)
     if sid is None:                                   # event inconnu : le pur repond deja proprement
-        return memory.replay_event([], event_id, depth=depth)
-    return memory.replay_event(proj.events_by_session(sid), event_id, depth=depth)
+        return memory.replay_event([], event_id, depth=depth, **kw)
+    return memory.replay_event(proj.events_by_session(sid), event_id, depth=depth, **kw)
 
 
 def index_status_sql(proj: Projection, vecs: dict, **kw):
@@ -448,15 +449,17 @@ def briefing_today_sql(proj: Projection, now=None):
     return memory.briefing_today(evs, now=n)
 
 
-def health_sql(proj: Projection) -> dict:
-    """`memory.health` sans charger un seul event : COUNT / MAX / DISTINCT. LECTURE SEULE."""
+def health_sql(proj: Projection, index: dict = None, now=None) -> dict:
+    """`memory.health` sans charger un seul event : COUNT / MAX / DISTINCT. Les avertissements
+    passent par `memory.avertissements_sante` — meme source de verite que le pur. LECTURE SEULE."""
     from datetime import datetime as _dt
+    n = memory._aware(now) or datetime.now(timezone.utc)
     s = proj.stats()
-    dernier = s["last_valid_from"]
-    if dernier:
-        dernier = memory._aware(_dt.fromisoformat(dernier)).isoformat()
+    last = memory._aware(_dt.fromisoformat(s["last_valid_from"])) if s["last_valid_from"] else None
+    avertissements = memory.avertissements_sante(last, bool(s["count"]), index, n)
     return {"available": True, "event_count": s["count"],
-            "last_event_at": dernier, "sources": s["sources"]}
+            "last_event_at": last.isoformat() if last else None, "sources": s["sources"],
+            "degraded": bool(avertissements), "warnings": avertissements}
 
 
 def as_of_sql(proj: Projection, at) -> List[AetherEvent]:
@@ -488,3 +491,9 @@ def verify_projection(journal, proj: Projection) -> bool:
     fresh = Projection(":memory:")
     fresh.rebuild(journal)
     return proj.state_hash() == fresh.state_hash()
+
+
+def pitfalls_sql(proj: Projection, **kw):
+    """`memory.pitfalls` servi par la projection : prefiltre par type, tres selectif (les pieges
+    sont rares par nature, c'est ce qui fait leur valeur). LECTURE SEULE."""
+    return memory.pitfalls(proj.events_by_types(["pitfall", "correction"]), **kw)

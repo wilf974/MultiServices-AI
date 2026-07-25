@@ -16,6 +16,8 @@ READ_TOOLS = {
     "project_review",   # vue composee de revue de projet (06/07/2026) - lecture seule
     "health",           # sante du substrat (kit LLM universel, 06/07/2026) - lecture seule
     "as_of",            # etat actif au temps valide T (scaling Phase 3, 17/07/2026) - lecture seule
+    "pitfalls",         # les PIEGES connus (25/07/2026) - lecture seule. Ce qui a deja coute une
+                        # erreur et ne doit pas la couter deux fois ; remonte en tete d'une reprise.
 }
 
 

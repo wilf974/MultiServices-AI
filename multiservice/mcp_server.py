@@ -24,6 +24,10 @@ def build_server(journal_path: str = None):
     jp = journal_path or config.JOURNAL_PATH
     srv = FastMCP("multiservice-memory")
 
+    def _chars(v: int):
+        """-1 (defaut) = borne historique ; 0 = texte INTEGRAL ; N = coupe a N."""
+        return None if v is None or v < 0 else v
+
     def _proj():
         """Projection a jour (scaling Phase 1) ou None -> repli fonctions pures sur le journal.
         Le repli garantit que la surface repond meme si la projection est indisponible (db
@@ -47,12 +51,12 @@ def build_server(journal_path: str = None):
         return memory.recall(read_events(jp), query, **kw)
 
     @srv.tool()
-    def why(turn_id: str) -> list:
+    def why(turn_id: str, chars: int = -1) -> list:
         """Les evenements d'un tour donne (pourquoi l'agent a vu/dit ca)."""
         p = _proj()
         if p is not None:
-            return projection.why_sql(p, turn_id)     # prefiltre EXACT sur le tour
-        return memory.why(read_events(jp), turn_id)
+            return projection.why_sql(p, turn_id, chars=_chars(chars))
+        return memory.why(read_events(jp), turn_id, chars=_chars(chars))
 
     @srv.tool()
     def recall_semantic(query: str, k: int = 10, type: str = "", source: str = "", explain: bool = False, min_fused: float = 0.4, sem_weight: float = 0.7) -> list:
@@ -69,23 +73,23 @@ def build_server(journal_path: str = None):
         return memory.recall_semantic(read_events(jp), query, embedder, store, **kw)
 
     @srv.tool()
-    def replay(session_id: str, digest: bool = True):
+    def replay(session_id: str, digest: bool = True, chars: int = -1):
         """Rejoue une session - lecture seule. digest=True (defaut) = resume COMPACT econome
         (1 ligne/tour) ; digest=False = tous les evenements ordonnes (dump complet)."""
         p = _proj()
         if p is not None:
-            return projection.replay_sql(p, session_id, digest=digest)   # prefiltre par session
+            return projection.replay_sql(p, session_id, digest=digest, chars=_chars(chars))
         ev = read_events(jp)
         return memory.session_digest(ev, session_id) if digest else memory.replay_session(ev, session_id)
 
     @srv.tool()
-    def replay_event(event_id: str, depth: int = 3) -> dict:
+    def replay_event(event_id: str, depth: int = 3, chars: int = -1) -> dict:
         """Chaine causale d'un EVENEMENT : pourquoi l'agent a vu/dit ca. Remonte le tour focus
         + 'depth' tours precedents de la session + cloture/correction C3. Lecture seule, cite
         ses preuves (id, source, dates). Donne un event_id issu d'un recall."""
         p = _proj()
         if p is not None:
-            return projection.replay_event_sql(p, event_id, depth=depth)   # session de l'event
+            return projection.replay_event_sql(p, event_id, depth=depth, chars=_chars(chars))
         return memory.replay_event(read_events(jp), event_id, depth=depth)
 
     @srv.tool()
@@ -131,35 +135,35 @@ def build_server(journal_path: str = None):
         return memory.reuse_stats(read_events(jp))
 
     @srv.tool()
-    def reasoning(session_id: str) -> dict:
+    def reasoning(session_id: str, chars: int = -1) -> dict:
         """Fil de RAISONNEMENT d'une session : hypothese -> observation -> decision -> correction
         -> validation, ordonne. Indique les etapes presentes/manquantes (ex: decision sans
         validation). Lecture seule, cite ses preuves + fraicheur C3."""
         p = _proj()
         if p is not None:
-            return projection.reasoning_sql(p, session_id)   # prefiltre par session
-        return memory.reasoning_chain(read_events(jp), session_id)
+            return projection.reasoning_sql(p, session_id, chars=_chars(chars))
+        return memory.reasoning_chain(read_events(jp), session_id, chars=_chars(chars))
 
     @srv.tool()
-    def lessons(source: str = "", k: int = 20, standing_k: int = 20) -> dict:
+    def lessons(source: str = "", k: int = 20, standing_k: int = 20, chars: int = -1) -> dict:
         """Lecons tirees des corrections (C3) : ce qui a ete revise/abandonne + la verite courante
         (`still_standing`). Lecture seule. Vide tant qu'aucune correction n'est journalisee.
         `source` filtre par projet ; `k` plafonne les lecons, `standing_k` les verites debout
         (defaut 20/20, sortie bornee). `counts` reste complet, `truncated` signale la coupe."""
-        kw = dict(source_prefix=(source or None), k=k, standing_k=standing_k)
+        kw = dict(source_prefix=(source or None), k=k, standing_k=standing_k, chars=_chars(chars))
         p = _proj()
         if p is not None:
             return projection.lessons_sql(p, **kw)    # corrections + faits perimables
         return memory.lessons_learned(read_events(jp), **kw)
 
     @srv.tool()
-    def project_review(project: str, days: int = 0, k: int = 20) -> dict:
+    def project_review(project: str, days: int = 0, k: int = 20, chars: int = -1) -> dict:
         """Vue COMPOSEE de revue d'un PROJET (par source), bi-temporelle, lecture seule.
         Reconstruit l'etat depuis la seule memoire : decisions valides / corrigees (C3),
         hypotheses refutees / debout, validations, lecons — chacune sourcee, datee, avec son
         `corrected_by` (le « pourquoi ca a change »). `days=0` = tout l'historique (sinon N
         derniers jours). Sortie bornee (k), `counts` complet, `truncated` signale la coupe."""
-        kw = dict(days=(days or None), k=k)
+        kw = dict(days=(days or None), k=k, chars=_chars(chars))
         p = _proj()
         if p is not None:
             return projection.project_review_sql(p, project, **kw)   # faits + corrections
@@ -180,6 +184,20 @@ def build_server(journal_path: str = None):
         return curator.curation_report(read_events(jp), **kw)
 
     @srv.tool()
+    def pitfalls(source: str = "", actifs_seuls: bool = True, k: int = 20,
+                 chars: int = -1) -> dict:
+        """Les PIEGES connus : ce qui a deja coute une erreur et ne doit pas la couter deux fois.
+        A LIRE EN PREMIER quand on reprend un projet. Plus recent d'abord. `actifs_seuls=True`
+        (defaut) masque les pieges revises depuis (C3) ; passer False pour voir aussi ce qui a
+        change et pourquoi (`corrected_by`). `chars=0` rend le texte integral. Lecture seule."""
+        kw = dict(source_prefix=(source or None), actifs_seuls=actifs_seuls, k=k,
+                  chars=_chars(chars))
+        p = _proj()
+        if p is not None:
+            return projection.pitfalls_sql(p, **kw)   # prefiltre par type : tres selectif
+        return memory.pitfalls(read_events(jp), **kw)
+
+    @srv.tool()
     def as_of(at: str = "", source: str = "", k: int = 50) -> dict:
         """Etat ACTIF de la memoire au temps valide `at` (ISO 8601 ; vide = maintenant) :
         « qu'est-ce qui etait vrai a T ? ». Bi-temporel C3 : clotures explicites + clotures
@@ -198,10 +216,17 @@ def build_server(journal_path: str = None):
         """Sante du substrat memoire (lecture seule) : disponibilite (on a pu lire), nombre
         d'evenements, date du dernier, nombre de sources distinctes. Point d'entree d'une REPRISE
         (health -> recent -> recall) — ne devine rien, ne mute rien."""
+        from .semantic import EmbeddingStore
+        idx = None
+        try:                                          # angle mort n.1 : l'index semantique
+            idx = memory.index_coverage(read_events(jp),
+                                        EmbeddingStore(config.EMBED_PATH).load())
+        except Exception:
+            pass                                      # health ne doit JAMAIS echouer sur un extra
         p = _proj()
         if p is not None:
-            return projection.health_sql(p)           # COUNT/MAX/DISTINCT : zero event charge
-        return memory.health(read_events(jp))
+            return projection.health_sql(p, index=idx)   # COUNT/MAX/DISTINCT : zero event charge
+        return memory.health(read_events(jp), index=idx)
 
     @srv.tool()
     def index_status() -> dict:

@@ -54,6 +54,19 @@ def _text(e: AetherEvent) -> str:
     return (e.data.get("text") or e.description or e.title or "")
 
 
+def _coupe(txt: str, defaut: int, chars: Optional[int] = None) -> str:
+    """Borne un texte de sortie. `chars=None` -> la borne HISTORIQUE de l'appelant (economie de
+    sortie, comportement inchange) ; `chars=0` -> texte INTEGRAL ; `chars=N` -> coupe a N.
+
+    Pourquoi : un agent qui veut lire UN souvenir en entier ne doit pas avoir a enchainer trois
+    outils pour le decouvrir encore tronque (constat d'usage du 24/07/2026)."""
+    txt = txt or ""
+    n = defaut if chars is None else chars
+    if not n or len(txt) <= n:
+        return txt
+    return txt[:n]
+
+
 def _corrections_index(events: List[AetherEvent]) -> Dict[Any, list]:
     """Index des `correction` par session : {session_id: [(valid_from, id), ...]}. PUR.
     Sert le drapeau de fraicheur C3 : un hit corrige plus tard ne doit pas etre cite sans reserve."""
@@ -129,7 +142,7 @@ def as_of(events: List[AetherEvent], at: Optional[datetime] = None) -> List[Aeth
     return out
 
 
-def as_of_view(events: List[AetherEvent], at: Optional[datetime] = None,
+def as_of_view(events: List[AetherEvent], at: Optional[datetime] = None, chars: Optional[int] = None,
                source_prefix: Optional[str] = None, k: int = 50) -> Dict[str, Any]:
     """Vue BORNEE de l'etat actif au temps valide `at` (surface MCP) : « qu'est-ce qui etait
     vrai a T ? ». Compteurs COMPLETS (`count`, `by_type`), items RECENTS d'abord, sortie
@@ -150,7 +163,8 @@ def as_of_view(events: List[AetherEvent], at: Optional[datetime] = None,
             "id": e.id, "type": e.type.value, "source": e.source,
             "valid_from": vf.isoformat() if vf else None,
             "session_id": e.data.get("session_id"),
-            "text": txt if len(txt) <= 200 else txt[:200].rstrip() + "...",
+            "text": txt if not chars and chars is not None else (
+                txt if len(txt) <= (chars or 200) else txt[:(chars or 200)].rstrip() + "..."),
         })
     return {"at": asof.isoformat(), "count": len(active), "by_type": by_type,
             "truncated": len(active) > k, "items": items}
@@ -243,7 +257,8 @@ def recall(events: List[AetherEvent], query: str, as_of: Optional[datetime] = No
     return hits[:k]
 
 
-def why(events: List[AetherEvent], turn_id: str) -> List[Dict[str, Any]]:
+def why(events: List[AetherEvent], turn_id: str,
+        chars: Optional[int] = None) -> List[Dict[str, Any]]:
     """Le 'pourquoi' d'un tour : ses evenements (prompt/completion/token...), ordonnes.
     (Le replay event -> chaine causale plus profond viendra au S18.)"""
     evs = [e for e in events if e.data.get("turn_id") == turn_id]
@@ -252,11 +267,12 @@ def why(events: List[AetherEvent], turn_id: str) -> List[Dict[str, Any]]:
     return [{
         "id": e.id, "type": e.type.value, "source": e.source,
         "valid_from": (_aware(e.valid_from).isoformat() if e.valid_from else None),
-        "text": _text(e)[:500], "data": {k: v for k, v in e.data.items() if k != "text"},
+        "text": _coupe(_text(e), 500, chars), "data": {k: v for k, v in e.data.items() if k != "text"},
     } for e in evs]
 
 
-def replay_session(events: List[AetherEvent], session_id: str) -> List[Dict[str, Any]]:
+def replay_session(events: List[AetherEvent], session_id: str,
+                   chars: Optional[int] = None) -> List[Dict[str, Any]]:
     """Rejoue une SESSION entiere : tous ses evenements, ordonnes (lecture seule).
     Utile a un agent qui a un session_id (issu d'un recall) et veut tout le fil."""
     evs = [e for e in events if e.data.get("session_id") == session_id]
@@ -265,7 +281,7 @@ def replay_session(events: List[AetherEvent], session_id: str) -> List[Dict[str,
     return [{
         "id": e.id, "type": e.type.value, "source": e.source,
         "valid_from": (_aware(e.valid_from).isoformat() if e.valid_from else None),
-        "turn_id": e.data.get("turn_id"), "text": _text(e)[:300],
+        "turn_id": e.data.get("turn_id"), "text": _coupe(_text(e), 300, chars),
     } for e in evs]
 
 
@@ -300,17 +316,17 @@ def session_digest(events: List[AetherEvent], session_id: str,
     return {"session_id": session_id, "turns": len(rows), "span": span, "rows": rows}
 
 
-def _ev_brief(e: AetherEvent) -> Dict[str, Any]:
+def _ev_brief(e: AetherEvent, chars: Optional[int] = None) -> Dict[str, Any]:
     """Vue courte d'un evenement pour une chaine causale (preuve : id + source + dates)."""
     return {
         "id": e.id, "type": e.type.value, "source": e.source,
         "valid_from": (_aware(e.valid_from).isoformat() if e.valid_from else None),
         "valid_to": (_aware(e.valid_to).isoformat() if e.valid_to else None),
-        "turn_id": e.data.get("turn_id"), "text": _text(e)[:300],
+        "turn_id": e.data.get("turn_id"), "text": _coupe(_text(e), 300, chars),
     }
 
 
-def replay_event(events: List[AetherEvent], event_id: str,
+def replay_event(events: List[AetherEvent], event_id: str, chars: Optional[int] = None,
                  depth: int = 3) -> Dict[str, Any]:
     """Chaine causale d'un EVENEMENT (event -> contexte qui a mene a lui). PUR, LECTURE SEULE.
 
@@ -344,7 +360,7 @@ def replay_event(events: List[AetherEvent], event_id: str,
         "corrected_by": [e.id for e in corrections],
     }
 
-    focus = _ev_brief(target)
+    focus = _ev_brief(target, chars)
     if not tid:                                                 # ex : decision hors tour
         return {"event_id": event_id, "found": True, "focus": focus,
                 "bitemporal": bitemporal, "antecedents": []}
@@ -378,7 +394,7 @@ def replay_event(events: List[AetherEvent], event_id: str,
             "turn_id": t,
             "valid_from": turn_start(evs).isoformat(),
             "is_focus_turn": (t == tid),
-            "events": [_ev_brief(e) for e in evs_sorted],
+            "events": [_ev_brief(e, chars) for e in evs_sorted],
         })
     return {"event_id": event_id, "found": True, "focus": focus,
             "bitemporal": bitemporal, "antecedents": antecedents}
@@ -467,7 +483,7 @@ _REASONING_ORDER = ["hypothesis", "observation", "decision", "correction", "vali
 _REASONING_SET = set(_REASONING_ORDER)
 
 
-def reasoning_chain(events: List[AetherEvent], session_id: str,
+def reasoning_chain(events: List[AetherEvent], session_id: str, chars: Optional[int] = None,
                     as_of: Optional[datetime] = None) -> Dict[str, Any]:
     """Le fil de RAISONNEMENT d'une session : hypothese -> observation -> decision -> correction
     -> validation, ordonne chronologiquement (puis par etape). PUR, LECTURE SEULE.
@@ -492,7 +508,7 @@ def reasoning_chain(events: List[AetherEvent], session_id: str,
         cor = _superseded_by(corr_idx, session_id, vf)
         steps.append({
             "id": e.id, "stage": e.type.value, "source": e.source,
-            "valid_from": vf.isoformat() if vf else None, "text": _text(e)[:200],
+            "valid_from": vf.isoformat() if vf else None, "text": _coupe(_text(e), 200, chars),
             "superseded": bool(cor), "corrected_by": cor,
         })
     steps.sort(key=lambda s: (s["valid_from"] or "", rank.get(s["stage"], 9)))
@@ -503,6 +519,7 @@ def reasoning_chain(events: List[AetherEvent], session_id: str,
 
 
 def lessons_learned(events: List[AetherEvent], as_of: Optional[datetime] = None,
+                    chars: Optional[int] = None,
                     source_prefix: Optional[str] = None,
                     k: Optional[int] = 20, standing_k: Optional[int] = 20,
                     superseded_k: Optional[int] = 5) -> Dict[str, Any]:
@@ -552,10 +569,10 @@ def lessons_learned(events: List[AetherEvent], as_of: Optional[datetime] = None,
             "session": sid,
             "when": (cvf.isoformat() if c.valid_from else None),
             "source": c.source,
-            "correction": _text(c)[:300],          # la verite courante / le « pourquoi »
+            "correction": _coupe(_text(c), 300, chars),   # la verite courante / le « pourquoi »
             "superseded_count": len(superseded),   # total AVANT plafond (rien de cache)
             "superseded": [                        # ce qui a ete revise / abandonne (borne)
-                {"id": e.id, "type": e.type.value, "text": _text(e)[:200]}
+                {"id": e.id, "type": e.type.value, "text": _coupe(_text(e), 200, chars)}
                 for e in superseded[:superseded_k]],
         })
 
@@ -579,7 +596,7 @@ def lessons_learned(events: List[AetherEvent], as_of: Optional[datetime] = None,
     still_standing = [
         {"id": e.id, "type": e.type.value, "session": e.data.get("session_id"),
          "valid_from": (_aware(e.valid_from).isoformat() if e.valid_from else None),
-         "text": _text(e)[:200]}
+         "text": _coupe(_text(e), 200, chars)}
         for e in standing_all[:standing_k]
     ]
     return {
@@ -592,6 +609,7 @@ def lessons_learned(events: List[AetherEvent], as_of: Optional[datetime] = None,
 
 
 def project_review(events: List[AetherEvent], project: str, days: Optional[int] = None,
+                   chars: Optional[int] = None,
                    now: Optional[datetime] = None, k: Optional[int] = 20) -> Dict[str, Any]:
     """Vue composee de revue de PROJET (par `source`), bi-temporelle, LECTURE SEULE, PURE.
 
@@ -623,7 +641,7 @@ def project_review(events: List[AetherEvent], project: str, days: Optional[int] 
     def brief(e: AetherEvent, extra: Optional[dict] = None) -> Dict[str, Any]:
         vf = _aware(e.valid_from)
         d = {"id": e.id, "type": e.type.value, "session": e.data.get("session_id"),
-             "valid_from": vf.isoformat() if vf else None, "text": _text(e)[:200]}
+             "valid_from": vf.isoformat() if vf else None, "text": _coupe(_text(e), 200, chars)}
         if extra:
             d.update(extra)
         return d
@@ -699,10 +717,67 @@ def project_review(events: List[AetherEvent], project: str, days: Optional[int] 
     }
 
 
-def health(events: List[AetherEvent]) -> Dict[str, Any]:
+def pitfalls(events: List[AetherEvent], source_prefix: Optional[str] = None,
+             actifs_seuls: bool = False, k: Optional[int] = 20,
+             chars: Optional[int] = None, as_of: Optional[datetime] = None) -> Dict[str, Any]:
+    """Les PIEGES connus — ce qui a deja coute une erreur. PUR, LECTURE SEULE.
+
+    Pourquoi un outil dedie : pour un agent sans continuite, refaire deux fois la meme erreur est
+    LE defaut structurel. Un avertissement noye dans un pave narratif ne protege personne.
+
+    Plus RECENT d'abord (un piege recent porte sur l'etat courant du systeme). C3 tenu : un piege
+    revise reste lisible AVEC son drapeau `superseded` et son `corrected_by` — on ne supprime
+    jamais, on signale. `actifs_seuls=True` ne garde que ce qui mord encore (usage : la reprise).
+    Sortie bornee (`k`), `counts` COMPLET, `truncated` signale la coupe."""
+    asof = _aware(as_of) or datetime.now(timezone.utc)
+    corr_idx = _corrections_index(events)
+    closes_idx = _closes_index(events, as_of=asof)
+    floor = datetime.min.replace(tzinfo=timezone.utc)
+
+    retenus = []
+    for e in events:
+        if e.type != EventType.PITFALL:
+            continue
+        if not project_matches(e.data, e.source, source_prefix):
+            continue
+        vf = _aware(e.valid_from)
+        if vf and vf > asof:
+            continue                                  # pas encore valide (bi-temporel)
+        corrected = (_superseded_by(corr_idx, e.data.get("session_id"), vf)
+                     + _closed_by(closes_idx, e.id))
+        vt = _aware(e.valid_to)
+        clos = bool(vt and vt <= asof)
+        if actifs_seuls and (corrected or clos):
+            continue
+        retenus.append((e, corrected, clos))
+
+    retenus.sort(key=lambda t: (_aware(t[0].valid_from) or floor), reverse=True)
+    total = len(retenus)
+    kk = total if k is None else max(0, k)
+    items = [{
+        "id": e.id, "source": e.source, "session": e.data.get("session_id"),
+        "valid_from": (_aware(e.valid_from).isoformat() if e.valid_from else None),
+        "text": _coupe(_text(e), 300, chars),
+        "superseded": bool(corrected or clos), "corrected_by": corrected,
+    } for e, corrected, clos in retenus[:kk]]
+    return {"as_of": asof.isoformat(), "counts": {"pieges": total},
+            "truncated": total > kk, "pieges": items}
+
+
+SILENCE_ALERTE_JOURS = 7            # au-dela, une memoire qui ne recoit plus rien est un symptome
+
+
+def health(events: List[AetherEvent], index: Optional[Dict[str, Any]] = None,
+           now: Optional[datetime] = None) -> Dict[str, Any]:
     """Sante du substrat memoire (kit LLM universel), LECTURE SEULE, PURE. On a pu lire -> disponible ;
     on renvoie le nombre d'evenements, la date du dernier, le nombre de sources distinctes. Sert la
-    REPRISE (health -> recent -> recall) sans rien deviner. La latence/reseau releve du connecteur."""
+    REPRISE (health -> recent -> recall) sans rien deviner. La latence/reseau releve du connecteur.
+
+    ANGLES MORTS (24/07/2026) : `available: true` ne suffit pas. Le canal semantique a tourne mort
+    (0 vecteur sur 2518) pendant que `health` affichait tout vert — il fallait penser a interroger
+    `index_status`. Une memoire doit annoncer ce qu'elle NE sait pas : `index` (sortie de
+    `index_coverage`) alimente `warnings` + `degraded`. Champs historiques inchanges."""
+    n = _aware(now) or datetime.now(timezone.utc)
     last: Optional[datetime] = None
     sources: set = set()
     for e in events:
@@ -711,8 +786,35 @@ def health(events: List[AetherEvent]) -> Dict[str, Any]:
             last = vf
         if e.source:
             sources.add(e.source)
+
+    avertissements = avertissements_sante(last, bool(events), index, n)
     return {"available": True, "event_count": len(events),
-            "last_event_at": last.isoformat() if last else None, "sources": len(sources)}
+            "last_event_at": last.isoformat() if last else None, "sources": len(sources),
+            "degraded": bool(avertissements), "warnings": avertissements}
+
+
+def avertissements_sante(last: Optional[datetime], a_des_events: bool,
+                         index: Optional[Dict[str, Any]], now: datetime) -> List[str]:
+    """Angles morts du substrat, en clair. PUR. UNE seule source de verite : `health` (pur) et
+    `projection.health_sql` l'appellent tous deux — un oracle a deja pris en defaut une version
+    dupliquee (24/07)."""
+    out: List[str] = []
+    if index:
+        elig, idx = index.get("eligible", 0), index.get("indexed", 0)
+        if elig and not idx:
+            out.append("index semantique VIDE (0/%d) : recall_semantic se replie sur le lexical"
+                       % elig)
+        elif elig and not index.get("fresh", True):
+            out.append("index semantique partiel (%d/%d, %.1f%%) : recall_semantic ne voit pas tout"
+                       % (idx, elig, index.get("covered_pct", 0.0)))
+    if last is not None:
+        jours = (now - last).days
+        if jours >= SILENCE_ALERTE_JOURS:
+            out.append("dernier evenement il y a %d jours : la capture est peut-etre interrompue"
+                       % jours)
+    elif a_des_events:
+        out.append("aucun evenement date : impossible de juger la fraicheur")
+    return out
 
 
 def reuse_stats(events: List[AetherEvent], as_of: Optional[datetime] = None) -> Dict[str, Any]:
