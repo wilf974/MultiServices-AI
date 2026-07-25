@@ -91,6 +91,22 @@ def selectionner(report: dict, deja: set, max_paires: int = MAX_PAIRES_DEFAUT) -
     return tranche
 
 
+def _a_juge(result: dict) -> bool:
+    """Le modele a-t-il REELLEMENT juge, ou tout est-il tombe en erreur backend ? PUR.
+
+    Un verdict `uncertain` motive par une erreur de backend n'est pas un jugement : c'est une
+    panne. Les distinguer evite de vider la file sans avoir rien decide."""
+    concluants = (len(result.get("consolidations") or [])
+                  + len(result.get("contradictions") or [])
+                  + len(result.get("dismissed") or []))
+    if concluants:
+        return True
+    incertains = result.get("uncertain") or []
+    if not incertains:
+        return False                                  # rien a juger : rien a marquer non plus
+    return not all("backend error" in (u.get("rationale") or "") for u in incertains)
+
+
 def marquer_traitees(dossier, tranche: dict) -> set:
     """Ajoute les paires de la tranche aux deja-jugees. Retourne les empreintes ajoutees."""
     ajoutees = {empreinte_paire(p)
@@ -112,7 +128,11 @@ def run(journal_path: str, out_dir: str, backend=None,
     tranche = selectionner(report, deja_juges(out_dir), max_paires)
     result = comparator.review_candidates(tranche, backend)
     result["restant"] = tranche.get("restant", 0)
-    marquer_traitees(out_dir, tranche)
+    # Une PANNE de modele ne doit pas consommer la file : le 25/07, `eve-qwen3-8b` avait disparu
+    # d'Ollama, chaque appel echouait, et les paires auraient ete marquees « jugees » sans l'etre
+    # — elles ne seraient jamais revenues. On ne marque que si quelque chose a VRAIMENT ete juge.
+    if _a_juge(result):
+        marquer_traitees(out_dir, tranche)
     md = comparator.format_llm_review_markdown(result)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)

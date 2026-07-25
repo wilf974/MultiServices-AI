@@ -12,8 +12,24 @@ from pathlib import Path
 AETHER_HOME = os.environ.get("MULTISERVICE_HOME", str(Path.home() / ".aethercore"))
 
 # --- backend Ollama (chemin recommande pour demarrer) ---
-OLLAMA_MODEL = os.environ.get("MULTISERVICE_OLLAMA_MODEL", "eve-qwen3-8b")
-OLLAMA_HOST = os.environ.get("MULTISERVICE_OLLAMA_HOST", "http://localhost:11434")
+# Modele local par defaut. CHOIX UTILISATEUR, jamais fige (la contrainte constitutionnelle porte
+# sur le LOCAL, pas sur un modele) : surchargeable par MULTISERVICE_OLLAMA_MODEL, --ollama-model,
+# /model en session, ou le champ de la page webchat.
+#
+# 25/07/2026 — `eve-qwen3-8b` (modele de test des debuts) avait DISPARU d'Ollama : chaque appel
+# repondait « model not found », le comparateur rendait « uncertain » et le rapport affichait
+# quand meme le nom configure. On croyait juger, on ne jugeait rien.
+# Mesure comparative sur une tache de jugement (temperature 0, 2 appels chacun) :
+#   gemma4:12b      21,2 s puis 30,7 s — et INCOHERENT : « NON » puis « OUI » sur la meme question
+#   qwen3.6:35b-a3b 42,7 s a froid puis 18,9 s a chaud — stable, et juste
+# Le 35B est un MoE a ~3B actifs : plus gros sur disque, plus rapide a chaud ET deterministe.
+# Pour un juge, la reproductibilite prime sur la taille du fichier.
+OLLAMA_MODEL = os.environ.get("MULTISERVICE_OLLAMA_MODEL", "qwen3.6:35b-a3b-mtp-q4_K_M")
+# 127.0.0.1 et NON `localhost` (25/07/2026) : sous Windows, `localhost` resout D'ABORD en ::1
+# (IPv6) ou Ollama n'ecoute pas — chaque appel repondait 404, le comparateur rendait « uncertain »
+# et le rapport affichait quand meme un resultat. On croyait juger, on ne jugeait rien.
+# Mesure : localhost/api/chat -> 404 · 127.0.0.1/api/chat -> 200, meme instance, meme modele.
+OLLAMA_HOST = os.environ.get("MULTISERVICE_OLLAMA_HOST", "http://127.0.0.1:11434")
 OLLAMA_TIMEOUT = int(os.environ.get("MULTISERVICE_OLLAMA_TIMEOUT", "600"))  # s, generations longues
 
 # --- backend EmbeddedGGUF (pur in-process, plus tard) ---

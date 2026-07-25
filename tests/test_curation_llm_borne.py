@@ -71,11 +71,48 @@ def test_un_passage_marque_les_paires_traitees(tmp_path):
     """Bout en bout : apres un passage, les paires jugees sont memorisees — le passage suivant
     prend la tranche d'apres, et la file se vide au lieu de tourner en rond."""
     class _BackendMuet:
-        def generate(self, *a, **kw):
-            return type("C", (), {"text": '{"verdict": "uncertain", "rationale": "x"}'})()
+        def chat(self, *a, **kw):
+            return type("C", (), {"text": '{"relation": "different", "rationale": "x"}'})()
 
     r = _report(6)
     vus = curation_llm.marquer_traitees(tmp_path, curation_llm.selectionner(r, set(), 2))
     assert len(vus) == 2
     sel2 = curation_llm.selectionner(r, deja=curation_llm.deja_juges(tmp_path), max_paires=2)
     assert {p["events"][0]["id"] for p in sel2["near_duplicates"]} == {"a2", "a3"}
+
+
+# --- un modele absent ne doit pas CONSOMMER la file en silence ---
+
+class _BackendMort:
+    """Modele injoignable : c'est exactement ce qui s'est passe le 25/07 (eve-qwen3-8b avait
+    disparu d'Ollama et chaque appel echouait, mais le rapport affichait le nom configure).
+    L'interface reelle est `chat(messages) -> Completion` (et non `generate`) : un double qui se
+    trompe d'interface tombe en « backend error » et teste autre chose que ce qu'on croit."""
+    def chat(self, *a, **kw):
+        raise RuntimeError("model not found")
+
+
+class _BackendVivant:
+    def chat(self, *a, **kw):
+        return type("C", (), {"text": '{"relation": "different", "rationale": "rien a voir"}'})()
+
+
+def test_un_backend_mort_ne_marque_aucune_paire(tmp_path, monkeypatch):
+    """Sinon une panne de modele vide la file sans avoir rien juge — et on ne s'en apercoit
+    jamais, puisque les paires ne reviennent plus."""
+    from multiservice import curation_llm as cl
+    monkeypatch.setattr(cl.curator, "curation_report", lambda *a, **kw: _report(4))
+    monkeypatch.setattr(cl, "read_events", lambda *a, **kw: [])
+    try:
+        cl.run(str(tmp_path / "j.jsonl"), str(tmp_path), backend=_BackendMort(), max_paires=2)
+    except Exception:
+        pass                                  # echouer est acceptable ; marquer ne l'est pas
+    assert cl.deja_juges(tmp_path) == set(), "une panne ne doit pas consommer la file"
+
+
+def test_un_backend_vivant_marque_bien_les_paires(tmp_path, monkeypatch):
+    from multiservice import curation_llm as cl
+    monkeypatch.setattr(cl.curator, "curation_report", lambda *a, **kw: _report(4))
+    monkeypatch.setattr(cl, "read_events", lambda *a, **kw: [])
+    cl.run(str(tmp_path / "j.jsonl"), str(tmp_path), backend=_BackendVivant(), max_paires=2)
+    assert len(cl.deja_juges(tmp_path)) == 2
