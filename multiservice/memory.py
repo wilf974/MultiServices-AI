@@ -115,6 +115,75 @@ def protege_par_utilite(events: List[AetherEvent], event_id: str) -> bool:
     return utilite(events).get(event_id, {}).get("prevented_error", 0) > 0
 
 
+RELATIONS = ("confirms", "contradicts", "refines")
+
+
+def consensus(events: List[AetherEvent]) -> Dict[str, Dict[str, Any]]:
+    """Ce que les AUTRES agents disent de chaque fait. PUR, LECTURE SEULE.
+
+    V3 (25/07/2026) : quatre sources ecrivent dans le meme journal et personne ne repond a
+    personne. Un fait dit une fois pese autant qu'un fait verifie par trois.
+
+    Ce qui compte n'est PAS le nombre de confirmations mais la DIVERSITE des sources : trois
+    confirmations du meme agent ne valent pas trois agents independants, sinon un agent bavard
+    fabriquerait de la certitude tout seul. Et se confirmer soi-meme n'apporte rien : la source
+    d'origine est exclue de ses propres confirmations.
+
+    Un fait sans relation n'apparait pas (l'absence de signal n'est pas un signal)."""
+    origine = {e.id: canonical(e.source) for e in events}
+    brut: Dict[str, Dict[str, set]] = {}
+    for e in events:
+        data = e.data if isinstance(e.data, dict) else {}
+        src = canonical(e.source)
+        for rel in RELATIONS:
+            cibles = data.get(rel)
+            if not isinstance(cibles, list):
+                continue
+            for cid in cibles:
+                if not isinstance(cid, str) or not cid:
+                    continue
+                if src and src == origine.get(cid):
+                    continue                          # se confirmer soi-meme n'informe personne
+                brut.setdefault(cid, {r: set() for r in RELATIONS})[rel].add(src)
+    return {cid: {**{r: sorted(s for s in rels[r] if s) for r in RELATIONS},
+                  "agents_confirmants": len({s for s in rels["confirms"] if s}),
+                  "agents_contredisants": len({s for s in rels["contradicts"] if s})}
+            for cid, rels in brut.items()}
+
+
+def contradictions_ouvertes(events: List[AetherEvent], source_prefix: Optional[str] = None,
+                            as_of_: Optional[datetime] = None) -> List[Dict[str, Any]]:
+    """Faits CONTREDITS par un autre agent et pas encore TRANCHES. PUR, LECTURE SEULE.
+
+    Une contradiction ne clot rien (C1 : l'humain arbitre) — elle remonte comme « a trancher ».
+    Trancher, c'est clore le fait depasse par une cloture CIBLEE, jamais le supprimer (C3) :
+    un fait clos disparait donc naturellement de cette liste."""
+    asof = _aware(as_of_) or datetime.now(timezone.utc)
+    closes_idx = _closes_index(events, as_of=asof)
+    cons = consensus(events)
+    par_id = {e.id: e for e in events}
+    out = []
+    for cid, c in cons.items():
+        if not c["contradicts"]:
+            continue
+        e = par_id.get(cid)
+        if e is None or _closed_by(closes_idx, cid):
+            continue                                  # deja tranche
+        if not project_matches(e.data, e.source, source_prefix):
+            continue
+        vt = _aware(e.valid_to)
+        if vt and vt <= asof:
+            continue
+        vf = _aware(e.valid_from)
+        out.append({"id": cid, "source": e.source,
+                    "valid_from": vf.isoformat() if vf else None,
+                    "text": _coupe(_text(e), 300),
+                    "contredit_par": c["contradicts"],
+                    "confirme_par": c["confirms"]})
+    out.sort(key=lambda d: d["valid_from"] or "", reverse=True)
+    return out
+
+
 def _corrections_index(events: List[AetherEvent]) -> Dict[Any, list]:
     """Index des `correction` par session : {session_id: [(valid_from, id), ...]}. PUR.
     Sert le drapeau de fraicheur C3 : un hit corrige plus tard ne doit pas etre cite sans reserve."""
@@ -272,6 +341,7 @@ def recall(events: List[AetherEvent], query: str, as_of: Optional[datetime] = No
     corr_idx = _corrections_index(events)            # C3 : fraicheur (correction posterieure ?)
     closes_idx = _closes_index(events, as_of=asof)   # clotures CIBLEES (curation)
     util = utilite(events)                           # V2 : ce que chaque souvenir a SERVI
+    cons = consensus(events)                         # V3 : ce que les AUTRES agents en disent
     hits = []
     for e in events:
         if type_ and e.type.value != type_:
@@ -303,6 +373,7 @@ def recall(events: List[AetherEvent], query: str, as_of: Optional[datetime] = No
             "corrected_by": corrected,
             **_structure(e),                         # rationale / pitfall / command / refs si ecrits
             **({"utilite": util[e.id]} if e.id in util else {}),   # V2 : ce que ca a SERVI
+            **({"consensus": cons[e.id]} if e.id in cons else {}),  # V3 : ce que les autres en disent
         })
     hits.sort(key=lambda h: (h["score"], h["valid_from"] or ""), reverse=True)
     return hits[:k]
@@ -841,6 +912,9 @@ def resume(events: List[AetherEvent], project: str, days: Optional[int] = 14,
                       as_of=asof)
     sante = health(events, index=index, curation=curation, now=asof)
     cur = _vue_curation(curation, k)
+    # V3 : les desaccords entre agents. Un desaccord qui n'arrive jamais sous les yeux n'est
+    # pas arbitre : il pourrit. C'est le seul endroit ou l'humain peut trancher (C1).
+    trancher = contradictions_ouvertes(events, source_prefix=project, as_of_=asof)[:max(0, k)]
     etat = project_review(events, project, days=days, k=k, chars=chars, now=asof)
     dernier = recent(events, days=days or 3650, source_prefix=project, limit=k, now=asof,
                      chars=chars)
@@ -859,8 +933,9 @@ def resume(events: List[AetherEvent], project: str, days: Optional[int] = 14,
         "recent": dernier["latest"][:max(0, k)],      # `recent` borne decisions/corrections, pas `latest`
         "revisions": lecons["lessons"],
         "curation": cur,
+        "a_trancher": trancher,
         "counts": {"pieges": pieges["counts"]["pieges"], "revisions": lecons["counts"]["lessons"],
-                   "a_decider": cur["en_attente"]},
+                   "a_decider": cur["en_attente"], "a_trancher": len(trancher)},
     }
 
 

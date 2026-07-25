@@ -62,6 +62,14 @@ def main() -> None:
                    help="ids (virgules) du souvenir qui n'a PAS servi ici")
     p.add_argument("--a-evite-erreur", dest="evite", default="", metavar="IDS",
                    help="ids (virgules) du souvenir qui a EVITE une erreur (le protege)")
+    # V3 : REPONDRE au fait d'un autre agent. Quatre sources ecrivent dans ce journal ; sans
+    # ces relations, ce sont quatre monologues cote a cote.
+    p.add_argument("--confirme", dest="confirms", default="", metavar="IDS",
+                   help="ids (virgules) du fait qu'on CONFIRME (verifie de son cote)")
+    p.add_argument("--contredit", dest="contradicts", default="", metavar="IDS",
+                   help="ids (virgules) du fait qu'on CONTREDIT -> remonte comme a trancher")
+    p.add_argument("--precise", dest="refines", default="", metavar="IDS",
+                   help="ids (virgules) du fait qu'on PRECISE (il reste vrai)")
     p.add_argument("--rejects", default="",
                    help="proposition de curation REJETEE : ids cibles (virgules)")
     a = p.parse_args()
@@ -89,6 +97,10 @@ def main() -> None:
             data[champ] = val.strip()
     if a.refs:
         data["refs"] = [r.strip() for r in a.refs if r.strip()]
+    for rel in ("confirms", "contradicts", "refines"):
+        ids = [x.strip() for x in getattr(a, rel, "").split(",") if x.strip()]
+        if ids:
+            data[rel] = ids
     for champ, verdict in (("utile", "useful"), ("inutile", "useless"),
                            ("evite", "prevented_error")):
         ids = [x.strip() for x in getattr(a, champ, "").split(",") if x.strip()]

@@ -63,6 +63,12 @@ def valider_champs_structures(data):
     if rates is not None:
         if not isinstance(rates, list) or not all(isinstance(x, str) and x for x in rates):
             return {"status": 422, "error": "invalid rates (liste d'ids attendue)"}
+    for rel in ("confirms", "contradicts", "refines"):
+        val = data.get(rel)
+        if val is None:
+            continue
+        if not isinstance(val, list) or not all(isinstance(x, str) and x for x in val):
+            return {"status": 422, "error": "invalid %s (liste d'ids attendue)" % rel}
     refs = data.get("refs")
     if refs is not None:
         if not isinstance(refs, list) or not all(isinstance(x, str) and x for x in refs):

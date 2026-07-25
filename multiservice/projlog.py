@@ -44,7 +44,9 @@ KINDS = {"decision": EventType.DECISION,
 # structure en prose : un futur lecteur scanne les `text`, puis descend dans le detail au besoin.
 # `rates` + `verdict` (V2, 25/07) : un RETOUR D'USAGE pointe vers le souvenir servi. Un signal
 # qu'on ne peut pas emettre ne sert a rien - lecon du type PITFALL, ajoute mais refuse a l'ingest.
-CHAMPS_STRUCTURES = ("rationale", "pitfall", "command", "refs", "rates", "verdict")
+# V3 (25/07) : `confirms` / `contradicts` / `refines` - repondre au fait d'un AUTRE agent.
+CHAMPS_STRUCTURES = ("rationale", "pitfall", "command", "refs", "rates", "verdict",
+                     "confirms", "contradicts", "refines")
 
 
 def make_event(kind: str, text: str, source: str = "project:local",
