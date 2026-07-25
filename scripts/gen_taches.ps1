@@ -34,6 +34,10 @@ $taches = [ordered]@{
     "reindex_local"    = '"{0}" -m multiservice.maintenance'     -f $Python
     "sync_merge"       = '"{0}" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{1}\scripts\sync_memory_scheduled.ps1"' -f $Pwsh, $racine
     "refresh_index_vps"= '"{0}" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{1}\scripts\refresh_index_vps.ps1"'     -f $Pwsh, $racine
+    # Jugement LLM de curation : > 10 min (43 paires x modele local 35B). HEBDOMADAIRE, jamais
+    # synchrone. C'est LUI qui transforme un SIGNALEMENT en PROPOSITION actionnable — sans lui,
+    # le rapport quotidien signale du travail sans jamais rien proposer (constat du 25/07).
+    "curation_llm"     = '"{0}" -m multiservice.curation_llm' -f $Python
 }
 
 foreach ($nom in $taches.Keys) {

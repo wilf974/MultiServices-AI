@@ -198,7 +198,13 @@ def build_server(journal_path: str = None):
                                         EmbeddingStore(config.EMBED_PATH).load())
         except Exception:
             pass                                      # la sante ne doit jamais faire echouer la reprise
-        kw = dict(days=(days or None), k=k, chars=_chars(chars), index=idx)
+        cur = None
+        try:                                          # etat depose par la tache de curation
+            from . import curation_report
+            cur = curation_report.dernier_etat(config.CURATION_DIR)
+        except Exception:
+            pass                                      # une curation absente n'empeche pas de reprendre
+        kw = dict(days=(days or None), k=k, chars=_chars(chars), index=idx, curation=cur)
         p = _proj()
         if p is not None:
             return projection.resume_sql(p, project, **kw)

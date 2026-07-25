@@ -82,3 +82,9 @@ KEEP_TURNS = int(os.environ.get("MULTISERVICE_KEEP_TURNS", "6"))
 
 # Thinking coupe au demarrage (D13) : aucun prompt systeme injecte par defaut.
 SYSTEM_PROMPT = os.environ.get("MULTISERVICE_SYSTEM", "").strip()
+
+# Depot de l'etat de curation (calcul lourd : 84 s) — lu par `resume` pour un cout nul.
+CURATION_DIR = os.environ.get(
+    "MULTISERVICE_CURATION_DIR",
+    str(Path.home() / ".aethercore" / "curation"),
+)

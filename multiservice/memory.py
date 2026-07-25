@@ -782,6 +782,7 @@ def pitfalls(events: List[AetherEvent], source_prefix: Optional[str] = None,
 
 def resume(events: List[AetherEvent], project: str, days: Optional[int] = 14,
            k: int = 5, chars: Optional[int] = None, index: Optional[Dict[str, Any]] = None,
+           curation: Optional[Dict[str, Any]] = None,
            now: Optional[datetime] = None) -> Dict[str, Any]:
     """REPRENDRE un projet en UN appel. PUR, LECTURE SEULE, borne.
 
@@ -800,7 +801,8 @@ def resume(events: List[AetherEvent], project: str, days: Optional[int] = 14,
     asof = _aware(now) or datetime.now(timezone.utc)
     pieges = pitfalls(events, source_prefix=project, actifs_seuls=True, k=k, chars=chars,
                       as_of=asof)
-    sante = health(events, index=index, now=asof)
+    sante = health(events, index=index, curation=curation, now=asof)
+    cur = _vue_curation(curation, k)
     etat = project_review(events, project, days=days, k=k, chars=chars, now=asof)
     dernier = recent(events, days=days or 3650, source_prefix=project, limit=k, now=asof,
                      chars=chars)
@@ -818,14 +820,36 @@ def resume(events: List[AetherEvent], project: str, days: Optional[int] = 14,
                  "decisions_corrigees": etat["decisions_corrigees"]},
         "recent": dernier["latest"][:max(0, k)],      # `recent` borne decisions/corrections, pas `latest`
         "revisions": lecons["lessons"],
-        "counts": {"pieges": pieges["counts"]["pieges"], "revisions": lecons["counts"]["lessons"]},
+        "curation": cur,
+        "counts": {"pieges": pieges["counts"]["pieges"], "revisions": lecons["counts"]["lessons"],
+                   "a_decider": cur["en_attente"]},
     }
+
+
+CURATION_PERIMEE_JOURS = 3          # au-dela, le diagnostic decrit une memoire qui n'existe plus
+
+
+def _vue_curation(curation: Optional[Dict[str, Any]], k: int) -> Dict[str, Any]:
+    """Ce qui attend une DECISION (propositions, avec leur commande d'approbation) et ce qui
+    attend un JUGEMENT (signalements). PUR.
+
+    Les distinguer n'est pas cosmetique : 43 quasi-doublons ne sont pas 43 actions. Les confondre
+    fait paraitre la file enorme et decourage — c'est ainsi qu'une boucle de curation s'arrete."""
+    c = curation or {}
+    counts = c.get("counts") or {}
+    a_juger = sum(v for cle, v in counts.items()
+                  if cle in ("near_duplicates", "stale_candidates",
+                             "contradiction_candidates", "placeholder_facts"))
+    props = list(c.get("proposals") or [])[:max(0, k)]
+    return {"en_attente": counts.get("proposals", 0), "a_juger": a_juger,
+            "calcule_le": c.get("as_of"), "propositions": props}
 
 
 SILENCE_ALERTE_JOURS = 7            # au-dela, une memoire qui ne recoit plus rien est un symptome
 
 
 def health(events: List[AetherEvent], index: Optional[Dict[str, Any]] = None,
+           curation: Optional[Dict[str, Any]] = None,
            now: Optional[datetime] = None) -> Dict[str, Any]:
     """Sante du substrat memoire (kit LLM universel), LECTURE SEULE, PURE. On a pu lire -> disponible ;
     on renvoie le nombre d'evenements, la date du dernier, le nombre de sources distinctes. Sert la
@@ -845,14 +869,15 @@ def health(events: List[AetherEvent], index: Optional[Dict[str, Any]] = None,
         if e.source:
             sources.add(e.source)
 
-    avertissements = avertissements_sante(last, bool(events), index, n)
+    avertissements = avertissements_sante(last, bool(events), index, n, curation)
     return {"available": True, "event_count": len(events),
             "last_event_at": last.isoformat() if last else None, "sources": len(sources),
             "degraded": bool(avertissements), "warnings": avertissements}
 
 
 def avertissements_sante(last: Optional[datetime], a_des_events: bool,
-                         index: Optional[Dict[str, Any]], now: datetime) -> List[str]:
+                         index: Optional[Dict[str, Any]], now: datetime,
+                         curation: Optional[Dict[str, Any]] = None) -> List[str]:
     """Angles morts du substrat, en clair. PUR. UNE seule source de verite : `health` (pur) et
     `projection.health_sql` l'appellent tous deux — un oracle a deja pris en defaut une version
     dupliquee (24/07)."""
@@ -872,6 +897,15 @@ def avertissements_sante(last: Optional[datetime], a_des_events: bool,
                        % jours)
     elif a_des_events:
         out.append("aucun evenement date : impossible de juger la fraicheur")
+    if curation:
+        calcule = curation.get("as_of")
+        try:
+            age = (now - _aware(datetime.fromisoformat(calcule))).days if calcule else None
+        except (TypeError, ValueError):
+            age = None
+        if age is not None and age >= CURATION_PERIMEE_JOURS:
+            out.append("diagnostic de curation vieux de %d jours : il decrit une memoire qui "
+                       "n'existe plus" % age)
     return out
 
 
