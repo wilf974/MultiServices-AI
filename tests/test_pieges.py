@@ -140,3 +140,26 @@ def test_health_retro_compatible():
     for champ in ("available", "event_count", "last_event_at", "sources"):
         assert champ in h
     assert h["event_count"] == 1
+
+
+# --- ecriture : un type qu'on ne peut pas ecrire ne sert a rien ---
+
+def test_un_piege_peut_etre_ecrit_de_bout_en_bout(tmp_path):
+    """Constat du 25/07 : le type PITFALL existait mais l'ingest le refusait (422 invalid kind).
+    Un citoyen de premiere classe doit pouvoir ENTRER dans le journal."""
+    from multiservice import projlog
+    from multiservice.journal import read_events
+    assert "pitfall" in projlog.KINDS
+    jp = tmp_path / "j.jsonl"
+    projlog.log(jp, "pitfall", "wscript retire les guillemets internes",
+                source="project:demo", session_id="s", now=T0)
+    ev = read_events(jp)[0]
+    assert ev.type == EventType.PITFALL
+    assert memory.pitfalls(read_events(jp))["counts"]["pieges"] == 1
+
+
+def test_un_piege_reste_non_autoritaire_pour_le_modele():
+    """C1 : le modele OBSERVE, l'humain tranche. Un piege est une observation de terrain — il ne
+    doit ni etre refuse au modele, ni le laisser trancher a la place de l'humain."""
+    from multiservice import memory_tools
+    assert "pitfall" not in memory_tools.AUTHORITATIVE_KINDS

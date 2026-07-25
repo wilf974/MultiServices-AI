@@ -34,7 +34,10 @@ KINDS = {"decision": EventType.DECISION,
          "note": EventType.NOTE,
          "hypothesis": EventType.HYPOTHESIS,
          "observation": EventType.OBSERVATION,
-         "validation": EventType.VALIDATION}
+         "validation": EventType.VALIDATION,
+         # PIEGE : ce qui a deja coute une erreur. Non autoritaire (c'est une observation de
+         # terrain, pas un arbitrage) mais lu EN PREMIER a la reprise — cf. `memory.pitfalls`.
+         "pitfall": EventType.PITFALL}
 
 
 def make_event(kind: str, text: str, source: str = "project:local",
