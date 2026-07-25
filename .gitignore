@@ -75,3 +75,7 @@ Thumbs.db
 # Commandes de taches planifiees : chemins ABSOLUS propres a la machine (donnee de deploiement,
 # jamais du depot). Regenerables par scripts/gen_taches.ps1.
 scripts/taches/
+
+# Vues GENEREES depuis la memoire (render) : elles peuvent contenir des donnees de projets
+# (tickets, noms, infra). Le depot est public -> jamais versionnees, comme DECISIONS.md.
+docs/JOURNAL*.md
