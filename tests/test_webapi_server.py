@@ -21,7 +21,7 @@ def client(tmp_path, monkeypatch):
 def test_health_no_auth(client):
     c, _ = client
     r = c.get("/health")
-    assert r.status_code == 200 and r.json() == {"status": "ok"}
+    assert r.status_code == 200 and r.json()["status"] == "ok"
 
 
 def test_recall_requires_token(client):
@@ -78,6 +78,45 @@ def test_openapi_declares_bearer_security_not_header_param(client):
             for p in op.get("parameters", []):
                 assert not (p.get("name") == "authorization" and p.get("in") == "header"), \
                     f"{verb.upper()} {path} ne doit pas exposer 'authorization' en parametre header"
+
+
+def test_health_signale_un_journal_illisible(client):
+    """REGRESSION (incident 25-26/07/2026). Un type d'evenement inconnu du service deploye faisait
+    lever read_events -> 500 sur /recall et /recent, pendant que /health repondait `ok` parce qu'il
+    ne lisait PAS le journal. 25 h de panne totale sous feu vert. Un health-check aveugle a la panne
+    du service qu'il surveille ment ; il doit constater, jamais supposer - et ne jamais lever."""
+    from multiservice import projlog
+    c, jrnl = client
+    inconnu = json.dumps({
+        "id": "00000000-0000-0000-0000-000000000001",
+        "type": "type_inconnu_du_service",
+        "source": "project:test",
+        "valid_from": "2026-07-25T06:53:50Z",
+        "text": "evenement d'un type que ce binaire ne connait pas",
+    })
+    # AU MILIEU, comme en production : read_events tolere une DERNIERE ligne partielle (ecriture
+    # concurrente) mais leve sur une corruption au milieu - il ne la masque jamais.
+    suivant = projlog.make_event("note", "un fait posterieur", source="project:test",
+                                 session_id="s").model_dump_json()
+    jrnl.write_text(inconnu + "\n" + suivant + "\n", encoding="utf-8")
+
+    r = c.get("/health")
+
+    assert r.status_code == 200, "un health-check ne doit JAMAIS lever : il rapporte la panne"
+    body = r.json()
+    assert body["status"] == "unavailable", f"doit constater la panne, pas repondre ok : {body}"
+    assert body["degraded"] is True
+    assert any("journal" in w.lower() for w in body["warnings"]), body["warnings"]
+
+
+def test_health_reste_ok_quand_le_journal_est_lisible(client):
+    c, _ = client
+    c.post("/remember", json={"text": "un fait lisible", "kind": "note"}, headers=AUTH)
+
+    body = c.get("/health").json()
+
+    assert body["status"] == "ok" and body["degraded"] is False, body
+    assert body["warnings"] == [] and body["event_count"] == 1
 
 
 def test_main_refuses_without_enable(monkeypatch):

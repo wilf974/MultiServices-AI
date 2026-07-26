@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -50,7 +50,13 @@ def require_source(creds: Optional[HTTPAuthorizationCredentials] = Depends(beare
 
 # --- modeles de reponse (schema OpenAPI explicite avec properties, pour les Custom GPT) ---
 class HealthResponse(BaseModel):
+    # Incident 25-26/07/2026 : `status: ok` seul est un mensonge par omission. On porte desormais
+    # les memes angles morts que le `health` du MCP (degraded + warnings), meme source de verite.
     status: str
+    degraded: bool = False
+    warnings: List[str] = []
+    event_count: Optional[int] = None
+    last_event_at: Optional[str] = None
 
 
 class MemoryHit(BaseModel):
@@ -84,7 +90,25 @@ class RememberResponse(BaseModel):
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> dict:
-    return {"status": "ok"}
+    """CONSTATE, ne suppose pas. Ce point d'entree ne lisait PAS le journal : il a certifie `ok`
+    pendant les 25 h ou toute lecture repondait 500 (type d'evenement inconnu du binaire deploye,
+    25-26/07/2026). Il tente donc la MEME lecture que /recall et /recent, et rapporte la panne.
+
+    Il ne leve JAMAIS (un health-check qui tombe ne surveille rien) et n'expose que le NOM de
+    l'exception : ce point d'entree est public et sans jeton, le detail pourrait porter du contenu
+    de journal ou des chemins machine."""
+    try:
+        events = journal.read_events(_journal_path())
+    except Exception as e:
+        return {"status": "unavailable", "degraded": True,
+                "warnings": ["journal illisible (%s) : la LECTURE est hors service ; les ecritures,"
+                             " qui n'ouvrent pas le journal, peuvent continuer d'aboutir"
+                             % type(e).__name__],
+                "event_count": None, "last_event_at": None}
+    etat = memory.health(events)
+    return {"status": "degraded" if etat["degraded"] else "ok",
+            "degraded": etat["degraded"], "warnings": etat["warnings"],
+            "event_count": etat["event_count"], "last_event_at": etat["last_event_at"]}
 
 
 @app.get("/recall", response_model=RecallResponse)
