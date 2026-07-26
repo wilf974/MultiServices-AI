@@ -105,7 +105,20 @@ def health() -> dict:
                              " qui n'ouvrent pas le journal, peuvent continuer d'aboutir"
                              % type(e).__name__],
                 "event_count": None, "last_event_at": None}
-    etat = memory.health(events)
+    idx = None
+    # Angle mort n.1 : le canal semantique peut tourner MORT (0 vecteur) pendant que tout repond.
+    # On ne le juge QUE s'il est deploye ici : `mem-api` ne monte pas l'index (seul `mem-mcp`
+    # declare MULTISERVICE_EMBED), et « absent par deploiement » n'est pas « mort ». Le confondre
+    # rendrait ce service DEGRADE en permanence, et un garde-fou qui crie tout le temps n'est plus lu.
+    # NB : si l'index venait a etre monte ici, `load()` relirait 20 Mo a CHAQUE appel d'un point
+    # d'entree public et sans jeton -> passer alors par un store partage (cf. semantic.shared_store).
+    if os.path.exists(config.EMBED_PATH):
+        try:
+            from .semantic import EmbeddingStore
+            idx = memory.index_coverage(events, EmbeddingStore(config.EMBED_PATH).load())
+        except Exception:
+            pass                            # un EXTRA ne doit jamais faire tomber le health-check
+    etat = memory.health(events, index=idx)
     return {"status": "degraded" if etat["degraded"] else "ok",
             "degraded": etat["degraded"], "warnings": etat["warnings"],
             "event_count": etat["event_count"], "last_event_at": etat["last_event_at"]}

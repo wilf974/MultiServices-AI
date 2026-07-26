@@ -109,14 +109,52 @@ def test_health_signale_un_journal_illisible(client):
     assert any("journal" in w.lower() for w in body["warnings"]), body["warnings"]
 
 
-def test_health_reste_ok_quand_le_journal_est_lisible(client):
+def test_health_rend_compte_d_un_journal_lisible(client):
+    """Le pendant du test precedent : un journal qui se lit n'est JAMAIS annonce indisponible, et
+    les compteurs sont ceux du reel. (« ok » franc = journal vide et sans eligible : cf.
+    test_health_no_auth. Ici un fait indexable sans index rend le substrat degrade - a juste titre.)"""
     c, _ = client
     c.post("/remember", json={"text": "un fait lisible", "kind": "note"}, headers=AUTH)
 
     body = c.get("/health").json()
 
-    assert body["status"] == "ok" and body["degraded"] is False, body
-    assert body["warnings"] == [] and body["event_count"] == 1
+    assert body["status"] != "unavailable", body
+    assert body["event_count"] == 1 and body["last_event_at"]
+
+
+def test_health_annonce_l_index_semantique_mort(client, monkeypatch, tmp_path):
+    """L'ANGLE MORT N.1, celui qui a motive `degraded` cote MCP le 25/07 : le canal semantique peut
+    tourner MORT (0 vecteur) pendant que tout le reste repond. L'API web doit annoncer la meme
+    chose que le MCP - sinon deux surfaces de la meme memoire se contredisent sur son etat."""
+    from multiservice import config
+    c, _ = client
+    vide = tmp_path / "index.jsonl"
+    vide.write_text("", encoding="utf-8")            # l'index EXISTE (canal deploye) mais est VIDE
+    monkeypatch.setattr(config, "EMBED_PATH", str(vide))
+    c.post("/remember", json={"text": "un fait parfaitement indexable", "kind": "note"},
+           headers=AUTH)
+
+    body = c.get("/health").json()
+
+    assert body["degraded"] is True, body
+    assert any("index" in w.lower() for w in body["warnings"]), body["warnings"]
+
+
+def test_health_ne_crie_pas_quand_le_canal_semantique_n_est_pas_deploye(client, monkeypatch,
+                                                                       tmp_path):
+    """Le service central `mem-api` ne monte PAS l'index (seul `mem-mcp` declare MULTISERVICE_EMBED) :
+    le canal semantique ne fait pas partie de ce deploiement. Le juger absent-donc-mort produirait un
+    `degraded` PERMANENT et faux - et un garde-fou qui crie tout le temps n'est plus lu."""
+    from multiservice import config
+    c, _ = client
+    monkeypatch.setattr(config, "EMBED_PATH", str(tmp_path / "jamais-monte.jsonl"))
+    c.post("/remember", json={"text": "un fait parfaitement indexable", "kind": "note"},
+           headers=AUTH)
+
+    body = c.get("/health").json()
+
+    assert not any("index" in w.lower() for w in body["warnings"]), body["warnings"]
+    assert body["status"] == "ok", body
 
 
 def test_main_refuses_without_enable(monkeypatch):
